@@ -4,14 +4,15 @@ Live coding interview platform with real-time integrity tracking to detect AI-as
 
 ## Current Priorities
 
-1. **Day 3**: Implement detection algorithms (LinearityIndex, RhythmVariance)
-2. **Day 4**: Build Recruiter Dashboard UI
-3. **Day 5**: Add visualizations (Pulse graph, Session Replay)
+1. **Day 4**: Build Recruiter Dashboard UI (visualizations, event timeline)
+2. **Day 5**: Add Pulse graph, Session Replay
+3. Consider: Video proctoring integration for stronger detection
 
 ## Known Issues / Context
 
 - Ably cleanup in React Strict Mode causes warnings (wrapped in try-catch, functional but noisy in dev)
 - Next.js 16.1.1 has a turbopack warning about multiple lockfiles (cosmetic, not blocking)
+- **Critical Insight**: Focus_loss cannot distinguish Cluely overlay from phone/second monitor/paper notes - detection is probabilistic, not definitive
 
 ## Architecture Decisions
 
@@ -19,7 +20,7 @@ Live coding interview platform with real-time integrity tracking to detect AI-as
 |-------|------------|-----------|
 | Frontend | Next.js 14 (App Router) | SSR, file-based routing |
 | Hosting | Netlify | Zero DevOps, instant deploys |
-| Backend | Netlify Functions | Serverless, no Docker needed |
+| Backend | Netlify Functions + Next.js API Routes | Serverless, no Docker needed |
 | Real-time | Ably | Managed WebSockets, no server state |
 | Database | MongoDB Atlas | Flexible document storage |
 | Editor | Monaco Editor | VS Code engine, rich API |
@@ -33,23 +34,36 @@ ABLY_API_KEY=...
 
 ## Session Handoff Notes
 
-**Last updated**: 2026-01-15
-**Status**: Day 2 complete, ready for Day 3 (no code changes this session)
+**Last updated**: 2026-01-16
+**Status**: Day 4 code complete, but Return Signature detection needs debugging
 **Completed**:
-- Day 1: Full stack infrastructure (Next.js, MongoDB, Ably, Netlify Functions)
-- Day 2: Telemetry system for AI-cheating detection:
-  - `lib/IntegrityTracker.ts` - Welford's Algorithm for real-time keystroke variance
-  - `hooks/useKeystrokeDynamics.ts` - Monaco integration for event capture
-  - `netlify/functions/events.ts` - API for storing/retrieving integrity events
-  - CodeEditor integration with "Recording" indicator
-  - Detects: velocity_spike (<30ms), rhythm_anomaly (variance<50), paste (>50 chars), focus_loss
-  - Integrity score auto-reduces on critical events (-5 per event)
-  - Fixed: Session IDs now alphanumeric-only (no URL truncation issues)
-  - Fixed: Ably cleanup deferred to avoid React Strict Mode errors
-- This session: Indexed repo with Nia, updated global CLAUDE.md to make repo indexing COMPULSORY on session end
+- Day 1: Full stack infrastructure
+- Day 2: Basic telemetry (Welford's Algorithm)
+- Day 3: LinearityIndex, RhythmVariance, bulk_insert, real-time sync
+- Day 4 (this session):
+  - **Oscillation Detection**: Catches phone/overlay cheating via burst pattern analysis (CV < 0.4)
+  - **Return Signature Analysis**: Miner vs Printer logic to distinguish doc readers from ChatGPT copiers
+  - **Tunable Thresholds**: Config constants at top of IntegrityTracker.ts for easy calibration
+  - **3 New Event Types**: `read_pattern_warning` (-8), `suspicious_return` (-10), `research_break` (+5 BONUS)
+  - **Recruiter Dashboard UI**: Split layout (70% code, 30% timeline), risk signals bar, event cards
+  - **Fixed React hooks bug**: useKeystrokeDynamics was recreating tracker on every render, losing buffered events
+  - **Added debug logging**: Console logs for focus tracking and return signature analysis
 
-**Blocked**: None
+**Known Issue - Return Signature Not Triggering**:
+- `focus_loss` events ARE being captured (tab switches show in timeline)
+- BUT `suspicious_return` never fires even with correct test pattern
+- Debug logs added - need to check console output for actual breakDuration and returnLatency values
+- Possible causes: window.focus event not firing on tab return, timing thresholds too strict
+
+**Questions for Gemini (to discuss next session)**:
+1. Is `window.focus` reliable for tab switches, or should we use `document.visibilitychange`?
+2. Is 10s MIN_BREAK_DURATION too long? What's realistic for ChatGPT workflow?
+3. Is 800ms PRINTER_LATENCY too short? Human reaction time is 200-300ms
+4. Should we analyze typing PATTERN after return instead of raw latency?
+
+**Blocked**: Return signature detection needs debugging
 
 **Next**:
-- Day 3: Implement LinearityIndex (character-by-character consistency) and RhythmVariance (typing pattern analysis)
-- Consider adding: bulk_insert detection (large text without paste event)
+- Debug return signature using console logs (check breakDuration and returnLatency values)
+- Consider switching to `visibilitychange` API instead of window blur/focus
+- Day 5: Pulse graph, Session Replay

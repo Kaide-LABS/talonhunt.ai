@@ -24,9 +24,20 @@ export function CodeEditor({
   const [clientId] = useState(() => `user-${Math.random().toString(36).slice(2, 11)}`);
   const [editor, setEditor] = useState<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const isRemoteUpdate = useRef(false);
+  const lastSavedCode = useRef(initialCode);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update code when initialCode prop changes (for reviewer loading from DB)
+  useEffect(() => {
+    if (initialCode !== lastSavedCode.current) {
+      setCode(initialCode);
+      lastSavedCode.current = initialCode;
+    }
+  }, [initialCode]);
 
   // Handle incoming code updates (for reviewer view)
   const handleCodeUpdate = useCallback((message: CodeUpdateMessage) => {
+    console.log('[CodeEditor] Received code update:', { isReadOnly, codeLength: message.code?.length });
     if (isReadOnly) {
       isRemoteUpdate.current = true;
       setCode(message.code);
@@ -51,40 +62,94 @@ export function CodeEditor({
     publishIntegrityEvent,
   });
 
+  // Save code to DB (for candidate only) - persists code for late-joining reviewers
+  const saveToDb = useCallback(async (codeToSave: string) => {
+    if (isReadOnly) return; // Only candidate saves
+
+    try {
+      const position = editor?.getPosition();
+      await fetch('/api/snapshots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          code: codeToSave,
+          cursorPosition: position ? { line: position.lineNumber, column: position.column } : undefined,
+        }),
+      });
+      lastSavedCode.current = codeToSave;
+      console.log('[CodeEditor] Saved snapshot to DB');
+    } catch (error) {
+      console.error('[CodeEditor] Failed to save snapshot:', error);
+    }
+  }, [sessionId, editor, isReadOnly]);
+
   // Debounced publish for typing
   const publishTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleChange: OnChange = useCallback(
     (value) => {
+      console.log('[CodeEditor] handleChange called:', { valueLength: value?.length, isRemote: isRemoteUpdate.current, isReadOnly });
       if (value === undefined || isRemoteUpdate.current) return;
 
       setCode(value);
 
-      // Debounce publishing to avoid flooding the channel
-      if (publishTimeoutRef.current) {
-        clearTimeout(publishTimeoutRef.current);
-      }
+      // Only publish and save if NOT read-only (candidate only)
+      if (!isReadOnly) {
+        // Debounce publishing to Ably (100ms)
+        if (publishTimeoutRef.current) {
+          clearTimeout(publishTimeoutRef.current);
+        }
+        publishTimeoutRef.current = setTimeout(() => {
+          console.log('[CodeEditor] Publishing after debounce, connected:', connected);
+          const position = editor?.getPosition();
+          publishCode(value, position ? { line: position.lineNumber, column: position.column } : undefined);
+        }, 100);
 
-      publishTimeoutRef.current = setTimeout(() => {
-        const position = editor?.getPosition();
-        publishCode(value, position ? { line: position.lineNumber, column: position.column } : undefined);
-      }, 100); // 100ms debounce
+        // Debounce saving to DB (2 seconds) - less frequent than Ably
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+        saveTimeoutRef.current = setTimeout(() => {
+          saveToDb(value);
+        }, 2000);
+      }
     },
-    [publishCode, editor]
+    [publishCode, editor, isReadOnly, connected, saveToDb]
   );
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
   }, []);
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount + final save
   useEffect(() => {
     return () => {
       if (publishTimeoutRef.current) {
         clearTimeout(publishTimeoutRef.current);
       }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Save on unmount (for candidate)
+  useEffect(() => {
+    if (isReadOnly) return;
+
+    return () => {
+      // Final save when leaving
+      if (code !== lastSavedCode.current) {
+        // Fire and forget - can't await in cleanup
+        fetch('/api/snapshots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, code }),
+        }).catch(() => {});
+      }
+    };
+  }, [sessionId, code, isReadOnly]);
 
   return (
     <div className="h-full w-full flex flex-col">

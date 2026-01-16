@@ -60,7 +60,9 @@ export function useAbly({
 
     // Subscribe to code updates
     if (onCodeUpdate) {
+      console.log('[useAbly] Subscribing to code_update on channel:', `session:${sessionId}`);
       ch.subscribe('code_update', (message) => {
+        console.log('[useAbly] Received code_update message:', { clientId: message.clientId, dataLength: (message.data as CodeUpdateMessage)?.code?.length });
         if (isMountedRef.current) {
           onCodeUpdate(message.data as CodeUpdateMessage);
         }
@@ -89,11 +91,13 @@ export function useAbly({
       setTimeout(() => {
         try {
           const state = ably.connection.state;
-          if (state !== 'closed' && state !== 'closing' && state !== 'failed') {
+          // Only attempt close if connection is in a state that allows it
+          if (state === 'connected' || state === 'connecting' || state === 'suspended') {
             ably.close();
           }
-        } catch {
-          // Silently ignore - connection may already be closed
+        } catch (e) {
+          // Silently ignore all errors - connection may already be closed or in transition
+          // This is expected in React Strict Mode due to double-mount
         }
       }, 100);
 
@@ -104,14 +108,17 @@ export function useAbly({
 
   const publishCode = useCallback(
     (code: string, cursorPosition?: { line: number; column: number }) => {
+      console.log('[useAbly] publishCode called:', { connected, hasChannel: !!channel, codeLength: code?.length });
       if (channel && connected) {
         const message: CodeUpdateMessage = {
           code,
           timestamp: Date.now(),
           cursorPosition,
         };
-        channel.publish('code_update', message).catch(() => {
-          // Silently ignore publish errors
+        channel.publish('code_update', message).then(() => {
+          console.log('[useAbly] Published code_update successfully');
+        }).catch((err) => {
+          console.error('[useAbly] Failed to publish:', err);
         });
       }
     },

@@ -16,7 +16,10 @@ export type IntegrityEventType =
   | 'velocity_spike'
   | 'linearity_alert'
   | 'rhythm_anomaly'
-  | 'bulk_insert';
+  | 'bulk_insert'
+  | 'read_pattern_warning'  // Day 4: Phone/overlay cheating (oscillation detection)
+  | 'suspicious_return'     // Day 4: ChatGPT memory dump pattern
+  | 'research_break';       // Day 4: Legitimate doc reading (BONUS)
 
 export type IntegritySeverity = 'info' | 'warning' | 'critical';
 

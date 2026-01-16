@@ -1,6 +1,26 @@
 import type { Handler } from '@netlify/functions';
 import { getDb } from '../../lib/mongodb';
-import type { IntegrityEventBatch, TelemetryEvent } from '../../types';
+import type { IntegrityEventBatch, TelemetryEvent, IntegrityEventType } from '../../types';
+
+// Per-event score impacts (negative values reduce, positive values increase)
+// NOTE: focus_loss is set to 0 because:
+// 1. Tab switching is NORMAL developer behavior (checking docs, Stack Overflow)
+// 2. Cluely/Interview Coder use OVERLAYS - they DON'T trigger focus_loss
+// 3. Penalizing focus_loss punishes legitimate behavior while missing cheaters
+//
+// Day 4: Added oscillation detection and return signature analysis
+// research_break is a POSITIVE signal - rewards legitimate doc reading
+const SCORE_IMPACT: Record<IntegrityEventType, number> = {
+  paste: -2,
+  focus_loss: 0,              // No penalty - actually indicates legitimate behavior
+  velocity_spike: -5,         // Physical impossibility (bot/macro)
+  rhythm_anomaly: -10,        // Statistical improbability (bot/transcription)
+  linearity_alert: -15,       // Behavioral improbability (AI transcription)
+  bulk_insert: -10,           // Code injection attack
+  read_pattern_warning: -8,   // Day 4: Phone/overlay cheating (oscillation)
+  suspicious_return: -10,     // Day 4: ChatGPT memory dump pattern
+  research_break: +5,         // Day 4: Legitimate doc reading (BONUS!)
+};
 
 const handler: Handler = async (event) => {
   const db = await getDb();
@@ -37,17 +57,27 @@ const handler: Handler = async (event) => {
 
       await integrityEvents.insertMany(eventsToStore);
 
-      // Update session integrity score for critical events
-      const criticalEvents = events.filter(
-        (e: TelemetryEvent) => e.type === 'velocity_spike' || e.type === 'rhythm_anomaly'
-      );
+      // Calculate total score impact from all events
+      let totalScoreImpact = 0;
+      for (const e of events) {
+        totalScoreImpact += SCORE_IMPACT[e.type] ?? 0;
+      }
 
-      if (criticalEvents.length > 0) {
+      // Update session integrity score
+      if (totalScoreImpact !== 0) {
         const sessions = db.collection('sessions');
-        // Reduce score by 5 per critical event (minimum 0)
         await sessions.updateOne(
           { sessionId },
-          { $inc: { integrityScore: -5 * criticalEvents.length } }
+          { $inc: { integrityScore: totalScoreImpact } }
+        );
+        // Clamp score to 0-100 range
+        await sessions.updateOne(
+          { sessionId, integrityScore: { $lt: 0 } },
+          { $set: { integrityScore: 0 } }
+        );
+        await sessions.updateOne(
+          { sessionId, integrityScore: { $gt: 100 } },
+          { $set: { integrityScore: 100 } }
         );
       }
 

@@ -36,28 +36,38 @@ GEMINI_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-16
-**Status**: AI forensic analysis layer complete and working
+**Status**: Pulse Graph visualization complete and tested
 
 **Completed (this session)**:
-- Implemented "Layer 2: The Detective" - Gemini-powered forensic analysis
-- Created `/api/analyze` endpoint with Gemini 2.0 Flash
-- Added AI analysis UI to recruiter dashboard with:
-  - Animated "Run Analysis" button
-  - Color-coded verdict badges (High/Medium/Low Risk)
-  - Confidence indicator, summary, key evidence display
-- Fixed model name issue (gemini-1.5-flash → gemini-2.0-flash for v1beta API)
-- Tested successfully with session eMEFQxev1L (59 events)
-- Committed and pushed (commit `f6b64e5`)
+- Implemented Pulse Graph visualization for recruiter dashboard
+- Added `telemetry_heartbeat` event type (emits every 5s with keystroke count)
+- Created `components/PulseGraph.tsx` - custom SVG bar chart:
+  - 5-second buckets for EKG-style resolution
+  - Bar height = activity volume (keystrokes + paste chars)
+  - Bar color = max severity in bucket (green/yellow/red)
+  - 1px gray baseline for idle periods (thinking)
+  - Hover tooltips, legend, quick stats
+- Integrated into dashboard between Risk Signals Bar and AI Analysis
+- Updated SCORE_IMPACT to include telemetry_heartbeat (neutral, 0 points)
+- Tested in browser - working as expected
+- Committed and pushed (commit `91eccf6`)
 
 **New Files**:
-- `app/api/analyze/route.ts` - Gemini analysis endpoint
+- `components/PulseGraph.tsx` - Custom SVG pulse visualization
+
+**Modified Files**:
+- `types/index.ts` - Added telemetry_heartbeat event type
+- `lib/IntegrityTracker.ts` - Added emitHeartbeat() method
+- `hooks/useKeystrokeDynamics.ts` - Calls heartbeat before each 5s flush
+- `app/review/[sessionId]/page.tsx` - Integrated PulseGraph component
+- `app/api/events/route.ts` + `netlify/functions/events.ts` - Added score impact
 
 **Technical Notes**:
-- Model: `gemini-2.0-flash` (gemini-1.5-flash not available in current API)
-- Demo mode: Set `DEMO_MODE=true` in .env.local for mock responses
-- Fallback: Returns "Medium Risk" with manual review note on API errors
+- Heartbeat captures: keystrokeCount, avgLatency, variance
+- Graph scales bar heights relative to max volume in session
+- Empty buckets show 1px gray baseline (candidate thinking)
 
-**Next (Day 5)**:
-- Pulse graph visualization
+**Next**:
 - Session Replay feature
 - Consider: Post-Return Burst Analysis (first 5 keystrokes pattern)
+- Consider: Video proctoring integration

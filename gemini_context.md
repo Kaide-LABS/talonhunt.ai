@@ -7800,3 +7800,71 @@ If a user pauses for **1.2 seconds** every **5 words** consistently, that is a m
 | `MIN_BURST_LENGTH` | 5 | 3 | ✅ Already done |
 | `MAX_PAUSE_CV` | 0.4 | 0.3 | ✅ Applied |
 
+
+---
+
+## AI Analysis Layer (Layer 2: The Detective)
+
+### Architecture: Three Layers
+
+1. **Layer 1 (The Sensors):** Raw telemetry (IntegrityTracker.ts)
+2. **Layer 2 (The Detective):** AI Analysis (Gemini API) that connects the dots
+3. **Layer 3 (The Judge):** The Human Reviewer
+
+### Claude's Assessment
+
+The "AI insight" layer transforms the product from "data dashboard" to "insight engine." This is the right strategic move for a demo.
+
+**Critical Issue:** The prompt must explain event meanings correctly:
+
+| Event | Meaning | Score Impact |
+|-------|---------|--------------|
+| `velocity_spike` | <30ms keystroke (machine speed) | Negative |
+| `linearity_alert` | AI transcription pattern (Cluely) | Negative |
+| `rhythm_anomaly` | Robotic consistency | Negative |
+| `bulk_insert` | >20 chars injected without keystrokes | Negative |
+| `read_pattern_warning` | Phone/overlay oscillation | Negative |
+| `suspicious_return` | Printer pattern (ChatGPT dump) | **-10 penalty** |
+| `focus_loss` | Tab switch | **Neutral** (normal!) |
+| `research_break` | Miner pattern (doc reading) | **+5 BONUS** |
+
+### Implementation Requirements
+
+1. **Refined Prompt:** Clearly define event meanings to Gemini (especially that `research_break` is POSITIVE and `focus_loss` is NEUTRAL)
+
+2. **Safe Verdicts:** Use legal-safe labels:
+   - `"High Risk"` instead of "Likely Cheating"
+   - `"Medium Risk"` instead of "Suspicious"
+   - `"Low Risk"` instead of "Clean"
+
+3. **Robust Parsing:** Add try-catch and JSON cleanup logic (LLMs don't always respect format instructions)
+
+4. **Model Selection:** Use `gemini-1.5-flash` for speed during demo
+   ```typescript
+   // OLD (Do not use)
+   const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+   
+   // NEW (Use this)
+   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+   ```
+
+### Why `gemini-1.5-flash`
+
+1. **Speed:** Sub-second latency - the "Run Analysis" button feels instant
+2. **Cost:** Effectively free for demo volume
+3. **Accuracy:** More than capable for analyzing JSON logs
+
+### Demo Safety: Mock Mode
+
+Add a fallback for demo reliability:
+```typescript
+if (process.env.DEMO_MODE === 'true') {
+  return { verdict: 'High Risk', summary: 'Simulation: Candidate pasted 500 lines...' };
+}
+```
+
+This guarantees the demo always works even if Gemini API hangs.
+
+### Priority
+
+Build the AI Analysis Layer FIRST before Pulse Graph and Session Replay. The "AI Insight" is what sells the product to a busy hiring manager - they want a summary, not to watch a replay.

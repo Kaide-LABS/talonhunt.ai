@@ -20,6 +20,7 @@ const SCORE_IMPACT: Record<IntegrityEventType, number> = {
   read_pattern_warning: -8,   // Day 4: Phone/overlay cheating (oscillation)
   suspicious_return: -10,     // Day 4: ChatGPT memory dump pattern
   research_break: +5,         // Day 4: Legitimate doc reading (BONUS!)
+  telemetry_heartbeat: 0,     // Day 5: Activity heartbeat for Pulse Graph (neutral)
 };
 
 export async function POST(request: NextRequest) {

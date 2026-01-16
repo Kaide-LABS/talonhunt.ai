@@ -555,6 +555,29 @@ export class IntegrityTracker {
   }
 
   /**
+   * Day 5: Emit telemetry heartbeat for Pulse Graph visualization
+   * Called every 5 seconds to record activity even when no anomalies occur
+   * Returns null if no keystrokes since last heartbeat
+   */
+  public emitHeartbeat(): TelemetryEvent | null {
+    // Only emit if there was activity (count > 0 means keystrokes tracked)
+    if (this.count === 0) return null;
+
+    const event: TelemetryEvent = {
+      type: 'telemetry_heartbeat',
+      timestamp: Date.now(),
+      data: {
+        keystrokeCount: this.count,
+        avgLatency: Math.round(this.mean),
+        variance: Math.round(this.getVariance()),
+      },
+    };
+
+    this.buffer.push(event);
+    return event;
+  }
+
+  /**
    * Flush buffer and return events for batch storage
    * Clears buffer after returning
    */

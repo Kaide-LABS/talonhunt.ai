@@ -18,6 +18,7 @@ interface UseKeystrokeDynamicsReturn {
 
 // Map event types to severity levels
 // Day 4: Added read_pattern_warning, suspicious_return, research_break
+// Day 5: Added telemetry_heartbeat
 function getSeverity(event: TelemetryEvent): IntegritySeverity {
   // Check if event has severity in data (from enhanced rhythm detection)
   if (event.data?.severity === 'critical') return 'critical';
@@ -36,6 +37,7 @@ function getSeverity(event: TelemetryEvent): IntegritySeverity {
       return 'warning';
     case 'focus_loss':
     case 'research_break':         // Day 4: Positive signal (info level)
+    case 'telemetry_heartbeat':    // Day 5: Activity heartbeat (info level)
     default:
       return 'info';
   }
@@ -77,6 +79,9 @@ export function useKeystrokeDynamics({
   // Flush events to API
   const flushEvents = useCallback(async () => {
     if (!trackerRef.current || !isMountedRef.current) return;
+
+    // Day 5: Emit heartbeat before flush for Pulse Graph data
+    trackerRef.current.emitHeartbeat();
 
     const events = trackerRef.current.flush();
     console.log('[IntegrityTracker] Flushing events:', events.length);

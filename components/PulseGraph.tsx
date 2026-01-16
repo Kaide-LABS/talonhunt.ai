@@ -1,0 +1,310 @@
+'use client';
+
+import { useMemo } from 'react';
+import type { IntegrityEventType, IntegritySeverity } from '@/types';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+interface StoredEvent {
+  _id: string;
+  sessionId: string;
+  type: IntegrityEventType;
+  timestamp: number;
+  data: Record<string, unknown>;
+  serverReceivedAt: string;
+}
+
+interface PulseGraphProps {
+  events: StoredEvent[];
+  sessionStart: number;
+  sessionEnd?: number;
+}
+
+interface Bucket {
+  startTime: number;
+  endTime: number;
+  volume: number;  // Total activity (keystrokes + paste chars)
+  maxSeverity: IntegritySeverity;
+  events: StoredEvent[];
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const BUCKET_DURATION_MS = 5000; // 5-second buckets for EKG-style resolution
+const SVG_HEIGHT = 60;
+const BAR_GAP = 1;
+const MIN_BAR_HEIGHT = 1; // 1px baseline for idle periods
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+function getEventSeverity(type: IntegrityEventType): IntegritySeverity {
+  switch (type) {
+    case 'velocity_spike':
+    case 'linearity_alert':
+    case 'suspicious_return':
+      return 'critical';
+    case 'rhythm_anomaly':
+    case 'bulk_insert':
+    case 'paste':
+    case 'read_pattern_warning':
+      return 'warning';
+    case 'focus_loss':
+    case 'research_break':
+    case 'telemetry_heartbeat':
+    default:
+      return 'info';
+  }
+}
+
+function severityToColor(severity: IntegritySeverity): string {
+  switch (severity) {
+    case 'critical':
+      return '#ef4444'; // red-500
+    case 'warning':
+      return '#eab308'; // yellow-500
+    case 'info':
+    default:
+      return '#22c55e'; // green-500
+  }
+}
+
+function severityPriority(severity: IntegritySeverity): number {
+  switch (severity) {
+    case 'critical':
+      return 3;
+    case 'warning':
+      return 2;
+    case 'info':
+    default:
+      return 1;
+  }
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// ============================================================================
+// Bucket Calculation
+// ============================================================================
+
+function calculateBuckets(
+  events: StoredEvent[],
+  sessionStart: number,
+  sessionEnd: number
+): Bucket[] {
+  const duration = sessionEnd - sessionStart;
+  const bucketCount = Math.ceil(duration / BUCKET_DURATION_MS);
+
+  // Initialize empty buckets
+  const buckets: Bucket[] = [];
+  for (let i = 0; i < bucketCount; i++) {
+    buckets.push({
+      startTime: sessionStart + i * BUCKET_DURATION_MS,
+      endTime: sessionStart + (i + 1) * BUCKET_DURATION_MS,
+      volume: 0,
+      maxSeverity: 'info',
+      events: [],
+    });
+  }
+
+  // Assign events to buckets
+  for (const event of events) {
+    const bucketIndex = Math.floor((event.timestamp - sessionStart) / BUCKET_DURATION_MS);
+    if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+      const bucket = buckets[bucketIndex];
+      bucket.events.push(event);
+
+      // Calculate volume based on event type
+      if (event.type === 'telemetry_heartbeat') {
+        // Heartbeat contains keystroke count
+        const keystrokeCount = Number(event.data?.keystrokeCount) || 0;
+        bucket.volume += keystrokeCount;
+      } else if (event.type === 'paste') {
+        // Paste events have character length
+        const pasteLength = Number(event.data?.length) || 0;
+        bucket.volume += pasteLength;
+      } else if (event.type === 'bulk_insert') {
+        // Bulk insert has character delta
+        const charDelta = Number(event.data?.charDelta) || 0;
+        bucket.volume += charDelta;
+      }
+
+      // Update max severity
+      const eventSeverity = getEventSeverity(event.type);
+      if (severityPriority(eventSeverity) > severityPriority(bucket.maxSeverity)) {
+        bucket.maxSeverity = eventSeverity;
+      }
+    }
+  }
+
+  return buckets;
+}
+
+// ============================================================================
+// Component
+// ============================================================================
+
+export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps) {
+  // Calculate effective session bounds
+  const effectiveStart = useMemo(() => {
+    if (events.length === 0) return sessionStart;
+    const firstEvent = Math.min(...events.map(e => e.timestamp));
+    return Math.min(sessionStart, firstEvent);
+  }, [events, sessionStart]);
+
+  const effectiveEnd = useMemo(() => {
+    if (events.length === 0) return sessionEnd || Date.now();
+    const lastEvent = Math.max(...events.map(e => e.timestamp));
+    return Math.max(sessionEnd || Date.now(), lastEvent);
+  }, [events, sessionEnd]);
+
+  // Calculate buckets
+  const buckets = useMemo(() => {
+    return calculateBuckets(events, effectiveStart, effectiveEnd);
+  }, [events, effectiveStart, effectiveEnd]);
+
+  // Find max volume for scaling
+  const maxVolume = useMemo(() => {
+    const max = Math.max(...buckets.map(b => b.volume), 1);
+    return max;
+  }, [buckets]);
+
+  // Calculate session duration
+  const duration = effectiveEnd - effectiveStart;
+
+  if (events.length === 0) {
+    return (
+      <div className="bg-gray-800/50 border-b border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📈</span>
+            <h3 className="font-semibold text-sm">Activity Pulse</h3>
+          </div>
+          <span className="text-xs text-gray-500">No activity data</span>
+        </div>
+        <div className="h-[60px] flex items-center justify-center text-gray-500 text-sm">
+          Waiting for activity...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-800/50 border-b border-gray-700 px-6 py-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">📈</span>
+          <h3 className="font-semibold text-sm">Activity Pulse</h3>
+          <span className="text-xs text-gray-500">
+            ({buckets.length} intervals, {formatDuration(duration)} total)
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            Normal
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+            Warning
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+            Critical
+          </span>
+        </div>
+      </div>
+
+      {/* SVG Graph */}
+      <div className="relative">
+        <svg
+          width="100%"
+          height={SVG_HEIGHT}
+          viewBox={`0 0 ${buckets.length * (4 + BAR_GAP)} ${SVG_HEIGHT}`}
+          preserveAspectRatio="none"
+          className="rounded"
+        >
+          {/* Background */}
+          <rect
+            x="0"
+            y="0"
+            width={buckets.length * (4 + BAR_GAP)}
+            height={SVG_HEIGHT}
+            fill="#1f2937"
+            rx="4"
+          />
+
+          {/* Bars */}
+          {buckets.map((bucket, index) => {
+            // Calculate bar height based on volume
+            const normalizedHeight = bucket.volume > 0
+              ? Math.max(
+                  MIN_BAR_HEIGHT + ((bucket.volume / maxVolume) * (SVG_HEIGHT - MIN_BAR_HEIGHT - 4)),
+                  MIN_BAR_HEIGHT
+                )
+              : MIN_BAR_HEIGHT;
+
+            // Get color based on max severity in bucket
+            const color = bucket.volume > 0
+              ? severityToColor(bucket.maxSeverity)
+              : '#374151'; // gray-700 for idle
+
+            return (
+              <g key={index}>
+                <rect
+                  x={index * (4 + BAR_GAP)}
+                  y={SVG_HEIGHT - normalizedHeight - 2}
+                  width={4}
+                  height={normalizedHeight}
+                  fill={color}
+                  rx="1"
+                  className="transition-all duration-200"
+                >
+                  <title>
+                    {`Time: ${formatDuration(bucket.startTime - effectiveStart)} - ${formatDuration(bucket.endTime - effectiveStart)}\n` +
+                     `Volume: ${bucket.volume} chars\n` +
+                     `Events: ${bucket.events.length}\n` +
+                     `Severity: ${bucket.maxSeverity}`}
+                  </title>
+                </rect>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Time labels */}
+        <div className="flex justify-between mt-1 text-xs text-gray-500">
+          <span>0:00</span>
+          {duration >= 60000 && (
+            <span>{formatDuration(Math.floor(duration / 2))}</span>
+          )}
+          <span>{formatDuration(duration)}</span>
+        </div>
+      </div>
+
+      {/* Quick stats */}
+      <div className="flex gap-4 mt-2 text-xs text-gray-400">
+        <span>
+          Peak: {maxVolume} chars
+        </span>
+        <span>
+          Critical events: {events.filter(e => getEventSeverity(e.type) === 'critical').length}
+        </span>
+        <span>
+          Warnings: {events.filter(e => getEventSeverity(e.type) === 'warning').length}
+        </span>
+      </div>
+    </div>
+  );
+}

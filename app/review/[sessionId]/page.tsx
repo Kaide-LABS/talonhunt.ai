@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
+import { PulseGraph } from '@/components/PulseGraph';
 import type { IntegrityEventType, IntegritySeverity } from '@/types';
 
 interface Session {
@@ -10,6 +11,7 @@ interface Session {
   language: string;
   status: string;
   integrityScore: number;
+  createdAt?: string;
 }
 
 interface Snapshot {
@@ -51,6 +53,7 @@ function getEventSeverity(type: IntegrityEventType): IntegritySeverity {
       return 'warning';
     case 'focus_loss':
     case 'research_break':
+    case 'telemetry_heartbeat':  // Day 5: Activity heartbeat for Pulse Graph
     default:
       return 'info';
   }
@@ -100,6 +103,8 @@ function getEventLabel(type: IntegrityEventType): string {
       return 'Memory Dump (ChatGPT)';
     case 'research_break':
       return 'Research Break ✓';
+    case 'telemetry_heartbeat':
+      return 'Activity';
     default:
       return type;
   }
@@ -125,6 +130,8 @@ function getEventIcon(type: IntegrityEventType): string {
       return '🚨';
     case 'research_break':
       return '✅';
+    case 'telemetry_heartbeat':
+      return '💓';
     default:
       return '📊';
   }
@@ -447,6 +454,12 @@ export default function ReviewPage() {
 
       {/* Risk Signals Bar */}
       <RiskSignalsBar events={events} />
+
+      {/* Pulse Graph - Activity visualization over time */}
+      <PulseGraph
+        events={events}
+        sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
+      />
 
       {/* AI Forensic Analysis Section */}
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">

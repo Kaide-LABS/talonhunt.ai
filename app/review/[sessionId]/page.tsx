@@ -18,6 +18,13 @@ interface Snapshot {
   exists: boolean;
 }
 
+interface AIAnalysis {
+  verdict: 'High Risk' | 'Medium Risk' | 'Low Risk';
+  confidence: 'High' | 'Medium' | 'Low';
+  summary: string;
+  key_evidence: string[];
+}
+
 interface StoredEvent {
   _id: string;
   sessionId: string;
@@ -287,6 +294,28 @@ export default function ReviewPage() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [events, setEvents] = useState<StoredEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Run AI analysis
+  const runAnalysis = useCallback(async () => {
+    setIsAnalyzing(true);
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAnalysis(data);
+      }
+    } catch (err) {
+      console.error('Analysis error:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [sessionId]);
 
   // Fetch events from API
   const fetchEvents = useCallback(async () => {
@@ -418,6 +447,83 @@ export default function ReviewPage() {
 
       {/* Risk Signals Bar */}
       <RiskSignalsBar events={events} />
+
+      {/* AI Forensic Analysis Section */}
+      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">✨</span>
+            <h3 className="font-semibold">AI Forensic Analysis</h3>
+            <span className="text-xs text-gray-500">(Gemini 2.0 Flash)</span>
+          </div>
+          {!analysis && !isAnalyzing && (
+            <button
+              onClick={runAnalysis}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors animate-pulse"
+            >
+              Run Analysis
+            </button>
+          )}
+          {isAnalyzing && (
+            <div className="flex items-center gap-2 text-gray-400">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500" />
+              <span className="text-sm">Analyzing session...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Analysis Results */}
+        {analysis && (
+          <div className="mt-4 space-y-3">
+            {/* Verdict and Confidence */}
+            <div className="flex items-center gap-3">
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  analysis.verdict === 'High Risk'
+                    ? 'bg-red-900 text-red-200 border border-red-700'
+                    : analysis.verdict === 'Medium Risk'
+                    ? 'bg-yellow-900 text-yellow-200 border border-yellow-700'
+                    : 'bg-green-900 text-green-200 border border-green-700'
+                }`}
+              >
+                {analysis.verdict}
+              </span>
+              <span className="text-sm text-gray-400">
+                Confidence: <span className="text-white">{analysis.confidence}</span>
+              </span>
+              <button
+                onClick={runAnalysis}
+                className="ml-auto text-xs text-gray-500 hover:text-gray-300"
+              >
+                Re-analyze
+              </button>
+            </div>
+
+            {/* Summary */}
+            <p className="text-sm text-gray-300">{analysis.summary}</p>
+
+            {/* Key Evidence */}
+            <div>
+              <h4 className="text-xs text-gray-500 uppercase tracking-wide mb-1">Key Evidence</h4>
+              <ul className="space-y-1">
+                {analysis.key_evidence.map((evidence, i) => (
+                  <li key={i} className="text-sm text-gray-400 flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    {evidence}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Empty state hint */}
+        {!analysis && !isAnalyzing && (
+          <p className="mt-2 text-xs text-gray-500">
+            Click &quot;Run Analysis&quot; to get AI-powered forensic insights on this session.
+          </p>
+        )}
+      </div>
 
       {/* Main Content: 70% Editor, 30% Timeline */}
       <main className="flex-1 flex overflow-hidden">

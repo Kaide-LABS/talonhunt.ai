@@ -30,48 +30,32 @@ Live coding interview platform with real-time integrity tracking to detect AI-as
 ```
 MONGODB_URI=mongodb+srv://...
 ABLY_API_KEY=...
+GEMINI_API_KEY=...
 ```
 
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-16
-**Status**: Threshold tuning complete, detection working correctly
+**Status**: AI forensic analysis layer complete and working
 
 **Completed (this session)**:
-- Debugged return signature detection with Gemini's help
-- Tuned all detection thresholds based on real-world testing
-- Added `visibilitychange` API for reliable tab switch detection
-- Verified system correctly identifies Miner vs Printer behavior
-- User test: Score went 80 → 85 → 90 (research_break bonus working)
-- Committed and pushed (commit `13ecd88`)
+- Implemented "Layer 2: The Detective" - Gemini-powered forensic analysis
+- Created `/api/analyze` endpoint with Gemini 2.0 Flash
+- Added AI analysis UI to recruiter dashboard with:
+  - Animated "Run Analysis" button
+  - Color-coded verdict badges (High/Medium/Low Risk)
+  - Confidence indicator, summary, key evidence display
+- Fixed model name issue (gemini-1.5-flash → gemini-2.0-flash for v1beta API)
+- Tested successfully with session eMEFQxev1L (59 events)
+- Committed and pushed (commit `f6b64e5`)
 
-**Current Thresholds (lib/IntegrityTracker.ts)**:
-```typescript
-OSCILLATION_CONFIG = {
-  MIN_BURSTS: 8,
-  BURST_GAP_MS: 1000,
-  MAX_BURST_CV: 0.4,
-  MAX_PAUSE_CV: 0.3,        // Tightened from 0.4
-  MIN_BURST_LENGTH: 3,      // Lowered from 5
-  MAX_BURST_LENGTH: 30,
-  MIN_MEAN_PAUSE_MS: 500,   // Lowered from 1000
-};
+**New Files**:
+- `app/api/analyze/route.ts` - Gemini analysis endpoint
 
-RETURN_SIGNATURE_CONFIG = {
-  MIN_BREAK_DURATION_MS: 5000,  // Lowered from 10000
-  PRINTER_LATENCY_MS: 1000,     // Raised from 800
-  MINER_LATENCY_MS: 2000,
-};
-
-bulk_insert threshold: >20 chars (raised from >10)
-```
-
-**Detection Status**:
-- ✅ `focus_loss` - Working (neutral, no penalty)
-- ✅ `research_break` - Working (+5 bonus for Miner pattern)
-- ✅ `bulk_insert` - Working (>20 chars threshold)
-- ⏳ `suspicious_return` - Not yet triggered in testing (user behaves like Miner, not Printer)
-- ⏳ `read_pattern_warning` - Not yet triggered (needs 8+ consistent bursts)
+**Technical Notes**:
+- Model: `gemini-2.0-flash` (gemini-1.5-flash not available in current API)
+- Demo mode: Set `DEMO_MODE=true` in .env.local for mock responses
+- Fallback: Returns "Medium Risk" with manual review note on API errors
 
 **Next (Day 5)**:
 - Pulse graph visualization

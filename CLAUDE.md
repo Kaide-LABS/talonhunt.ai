@@ -35,35 +35,37 @@ ABLY_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-16
-**Status**: Day 4 code complete, but Return Signature detection needs debugging
-**Completed**:
-- Day 1: Full stack infrastructure
-- Day 2: Basic telemetry (Welford's Algorithm)
-- Day 3: LinearityIndex, RhythmVariance, bulk_insert, real-time sync
-- Day 4 (this session):
-  - **Oscillation Detection**: Catches phone/overlay cheating via burst pattern analysis (CV < 0.4)
-  - **Return Signature Analysis**: Miner vs Printer logic to distinguish doc readers from ChatGPT copiers
-  - **Tunable Thresholds**: Config constants at top of IntegrityTracker.ts for easy calibration
-  - **3 New Event Types**: `read_pattern_warning` (-8), `suspicious_return` (-10), `research_break` (+5 BONUS)
-  - **Recruiter Dashboard UI**: Split layout (70% code, 30% timeline), risk signals bar, event cards
-  - **Fixed React hooks bug**: useKeystrokeDynamics was recreating tracker on every render, losing buffered events
-  - **Added debug logging**: Console logs for focus tracking and return signature analysis
+**Status**: Day 4 code pushed to GitHub, return signature debugging pending
+
+**Completed (this session)**:
+- Resumed session and reviewed handoff notes
+- Walked through return signature debugging process (console log analysis)
+- Committed and pushed Day 3-4 implementation to GitHub (commit `bbfb908`)
+- Updated global CLAUDE.md with compulsory protocols and full Nia tool reference
+
+**Day 3-4 Features (now in GitHub)**:
+- Oscillation Detection (burst pattern, CV < 0.4)
+- Return Signature Analysis (Miner vs Printer)
+- Tunable thresholds in IntegrityTracker.ts
+- 3 new event types: `read_pattern_warning`, `suspicious_return`, `research_break`
+- Recruiter Dashboard UI (70/30 split, timeline, risk signals)
+- Debug logging for focus tracking
+- Next.js API routes: auth, events, sessions, snapshots
 
 **Known Issue - Return Signature Not Triggering**:
-- `focus_loss` events ARE being captured (tab switches show in timeline)
+- `focus_loss` events ARE captured (tab switches show in timeline)
 - BUT `suspicious_return` never fires even with correct test pattern
-- Debug logs added - need to check console output for actual breakDuration and returnLatency values
-- Possible causes: window.focus event not firing on tab return, timing thresholds too strict
+- Debug logs exist - need to run test and check console for:
+  - `[IntegrityTracker] Focus REGAINED at: X, Break duration: Y ms`
+  - `[IntegrityTracker] Return Signature Analysis: {...}`
+- Thresholds: MIN_BREAK=10s, PRINTER_LATENCY<800ms, MINER_LATENCY>2000ms
 
-**Questions for Gemini (to discuss next session)**:
-1. Is `window.focus` reliable for tab switches, or should we use `document.visibilitychange`?
-2. Is 10s MIN_BREAK_DURATION too long? What's realistic for ChatGPT workflow?
-3. Is 800ms PRINTER_LATENCY too short? Human reaction time is 200-300ms
-4. Should we analyze typing PATTERN after return instead of raw latency?
-
-**Blocked**: Return signature detection needs debugging
+**Questions to Investigate**:
+1. Is `window.focus` reliable? Consider `document.visibilitychange` API
+2. Is 10s MIN_BREAK_DURATION realistic for ChatGPT workflow?
+3. Is 800ms PRINTER_LATENCY threshold correct?
 
 **Next**:
-- Debug return signature using console logs (check breakDuration and returnLatency values)
-- Consider switching to `visibilitychange` API instead of window blur/focus
+- Debug return signature (run app, switch tabs for 11s, type immediately, check console)
+- Consider visibilitychange API if window.focus unreliable
 - Day 5: Pulse graph, Session Replay

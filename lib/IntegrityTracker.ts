@@ -15,17 +15,17 @@ const OSCILLATION_CONFIG = {
   MIN_BURSTS: 8,                // Minimum bursts needed to analyze pattern
   BURST_GAP_MS: 1000,           // Pause duration (ms) that separates bursts
   MAX_BURST_CV: 0.4,            // Max coefficient of variation for burst lengths
-  MAX_PAUSE_CV: 0.4,            // Max coefficient of variation for pause durations
-  MIN_BURST_LENGTH: 5,          // Minimum chars per burst (tunable per Gemini)
+  MAX_PAUSE_CV: 0.3,            // Tightened from 0.4 - stricter consistency check for "Fast Glancers"
+  MIN_BURST_LENGTH: 3,          // Lowered from 5 to catch "micro-transcribers" (phone glancers)
   MAX_BURST_LENGTH: 30,         // Maximum chars per burst (tunable per Gemini)
-  MIN_MEAN_PAUSE_MS: 1000,      // Minimum average pause between bursts
+  MIN_MEAN_PAUSE_MS: 500,       // Lowered from 1000 - catches quick "eyes-darting" checks
 };
 
 // Return Signature Analysis (Miner vs Printer)
 // Distinguishes doc readers (good) from ChatGPT copiers (bad)
 const RETURN_SIGNATURE_CONFIG = {
-  MIN_BREAK_DURATION_MS: 10000, // Minimum break before we analyze return
-  PRINTER_LATENCY_MS: 800,      // <800ms = memory dump (ChatGPT pattern)
+  MIN_BREAK_DURATION_MS: 5000,  // Lowered from 10s - users read ChatGPT snippets in 5-8s
+  PRINTER_LATENCY_MS: 1000,     // Raised from 800ms - accounts for UI lag/system jitter
   MINER_LATENCY_MS: 2000,       // >2000ms = cognitive pause (doc reading)
 };
 
@@ -388,9 +388,9 @@ export class IntegrityTracker {
     }
 
     // Detect bulk insert: significant char growth without matching keystrokes
-    // >10 chars appearing with <3 keystrokes = suspicious injection
-    // Allows for small autocomplete (1-2 chars)
-    if (charDelta > 10 && keystrokes < 3) {
+    // >20 chars appearing with <3 keystrokes = suspicious injection
+    // Raised from 10 to 20 to allow normal autocomplete (console.log, System.out.println)
+    if (charDelta > 20 && keystrokes < 3) {
       this.addEvent('bulk_insert', {
         charDelta,
         keystrokes,

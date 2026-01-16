@@ -171,16 +171,27 @@ export function useKeystrokeDynamics({
     disposables.push(contentDisposable);
 
     // 4. Window focus events (detect switching to AI tools like Cluely)
+    // blur/focus catches overlays (Cluely), visibilitychange catches tab switches
     const handleBlur = () => tracker.trackFocus(false);
     const handleFocus = () => tracker.trackFocus(true);
 
+    // visibilitychange is MORE RELIABLE for tab switches (Alt+Tab, Chrome tab switch)
+    // This is critical for Return Signature Analysis (Miner vs Printer)
+    const handleVisibilityChange = () => {
+      const isHidden = document.hidden;
+      console.log('[IntegrityTracker] visibilitychange:', isHidden ? 'hidden' : 'visible');
+      tracker.trackFocus(!isHidden);
+    };
+
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       disposables.forEach((d) => d.dispose());
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [editor, enabled]);
 

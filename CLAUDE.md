@@ -36,49 +36,42 @@ GEMINI_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-17
-**Status**: Phase 1 complete, Phase 2 (Webcam + Live Commentary) pending
+**Status**: Phase 2 complete (Webcam + Live Commentary)
 
-**Completed (this session - Phase 1)**:
-- Post-Return Burst Analysis (commit `38bdd20`)
-  - Detects "memory dump" pattern: fast + consistent typing after tab return
-  - Tracks first 5 keystrokes, flags mean < 80ms + stdDev < 25ms
-  - `post_return_burst_suspicious` event (-8 score)
-- Undo Ratio Tracking
-  - Counts backspace/delete vs total keystrokes
-  - Flags <5% ratio as suspicious (honest coders ~10-30%)
-  - `low_undo_ratio` event (-5 score)
-- Confidence Score (0-100%)
-  - Visual progress bar in review dashboard
-  - Replaces vague High/Medium/Low with precise percentage
-- AI-Annotated Replay
-  - Activity classification: thinking, coding, debugging, suspicious_paste, idle
-  - Annotation markers on replay timeline (emoji icons)
-  - Auto-interrogation modal for suspicious events
+**Completed (this session - Phase 2)** (commit `f96e93e`):
+- Webcam Smart Snapshots (`hooks/useWebcamTelemetry.ts`)
+  - 45-second interval + event-triggered captures
+  - Smart budgeting: 30 max, stops heartbeats at 20, reserves 10 for events
+  - Triggers: suspicious_return, bulk_insert, focus_loss, post_return_burst
+- Visual Snapshots API (`app/api/visual-snapshots/route.ts`)
+  - Base64 JPEG storage in MongoDB `visual_snapshots` collection
+  - Netlify function mirror included
+- PulseGraph Enhancement (`components/PulseGraph.tsx`)
+  - Camera icon overlay on bars with snapshots
+  - Hover image preview tooltip
+- Live AI Commentary
+  - `components/LiveCommentaryFeed.tsx` - real-time verdict display
+  - `hooks/useAbly.ts` - added onAIVerdict + publishAIVerdict
+  - Gemini's fix: verdict publishing in `useKeystrokeDynamics.ts`
 
-**New Files**:
-- `app/api/replay-snapshots/route.ts` - Snapshot storage with activity classification
-- `app/api/interrogate/route.ts` - Auto-interrogation endpoint
-- `components/replay/ReplayControls.tsx` - Replay timeline UI
-- `components/InterrogationModal.tsx` - Candidate explanation capture
-- `netlify/functions/replay-snapshots.ts` - Netlify function mirror
+**New Files (Phase 2)**:
+- `app/api/visual-snapshots/route.ts` - Webcam snapshot storage
+- `netlify/functions/visual-snapshots.ts` - Netlify mirror
+- `hooks/useWebcamTelemetry.ts` - Smart webcam capture hook
+- `components/LiveCommentaryFeed.tsx` - Real-time AI verdict feed
 
-**Modified Files**:
-- `lib/IntegrityTracker.ts` - Post-return burst + undo ratio detection
-- `types/index.ts` - New event types, ActivityAnnotation type
-- `app/api/events/route.ts` + `netlify/functions/events.ts` - Score impacts
-- `app/api/analyze/route.ts` - confidenceScore in Gemini prompt
-- `app/review/[sessionId]/page.tsx` - Confidence bar, replay integration
-- `hooks/useKeystrokeDynamics.ts` - Event severity + triggers
+**Modified Files (Phase 2)**:
+- `types/index.ts` - VisualSnapshot, AIVerdictMessage types
+- `hooks/useAbly.ts` - onAIVerdict callback, publishAIVerdict function
+- `hooks/useKeystrokeDynamics.ts` - AI verdict publishing (Gemini's fix)
+- `components/PulseGraph.tsx` - Camera icon + hover preview
+- `components/editor/CodeEditor.tsx` - Wired publishAIVerdict
+- `app/candidate/[sessionId]/page.tsx` - Webcam integration + status
+- `app/review/[sessionId]/page.tsx` - Visual snapshots + Live Commentary
 
-**Technical Decisions**:
-- Dropped screen recording (permission friction, code replay already exists)
-- Using "Smart Snapshots" approach for Phase 2 (per Gemini recommendation)
+**Gemini's Critical Fix**:
+The plan had consumers (LiveCommentaryFeed) but no producers. Added publishing logic in useKeystrokeDynamics.ts that sends ai_verdict messages to Ably when warning/critical events occur.
 
-**Next (Phase 2 - User Approved)**:
-- Webcam Telemetry: `hooks/useWebcamTelemetry.ts`
-  - 30-second interval + event-triggered captures
-  - `/api/visual-snapshots` endpoint (Base64 MongoDB storage)
-  - Cap at 30 snapshots per session
-- PulseGraph camera icon hover preview
-- Live Commentary Feed: `components/LiveCommentaryFeed.tsx`
-  - Ably-powered real-time AI verdicts
+**Next Steps**:
+- Deploy to Netlify and test end-to-end
+- Consider Phase 3: Video proctoring integration

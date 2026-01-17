@@ -21,6 +21,7 @@ const SCORE_IMPACT: Record<IntegrityEventType, number> = {
   suspicious_return: -10,     // Day 4: ChatGPT memory dump pattern
   research_break: +5,         // Day 4: Legitimate doc reading (BONUS!)
   telemetry_heartbeat: 0,     // Day 5: Activity heartbeat for Pulse Graph (neutral)
+  challenge_selected: 0,      // Day 5: Challenge selection (neutral - just metadata)
 };
 
 const handler: Handler = async (event) => {

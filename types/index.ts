@@ -20,7 +20,8 @@ export type IntegrityEventType =
   | 'read_pattern_warning'  // Day 4: Phone/overlay cheating (oscillation detection)
   | 'suspicious_return'     // Day 4: ChatGPT memory dump pattern
   | 'research_break'        // Day 4: Legitimate doc reading (BONUS)
-  | 'telemetry_heartbeat';  // Day 5: Activity heartbeat for Pulse Graph (every 5s)
+  | 'telemetry_heartbeat'   // Day 5: Activity heartbeat for Pulse Graph (every 5s)
+  | 'challenge_selected';   // Day 5: Challenge selection metadata
 
 export type IntegritySeverity = 'info' | 'warning' | 'critical';
 

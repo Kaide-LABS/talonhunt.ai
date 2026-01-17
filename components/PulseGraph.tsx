@@ -20,6 +20,8 @@ interface PulseGraphProps {
   events: StoredEvent[];
   sessionStart: number;
   sessionEnd?: number;
+  onSeek?: (timestamp: number) => void;          // Click to seek (replay mode)
+  currentTimestamp?: number | null;              // Current playback position (replay mode)
 }
 
 interface Bucket {
@@ -154,7 +156,7 @@ function calculateBuckets(
 // Component
 // ============================================================================
 
-export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps) {
+export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTimestamp }: PulseGraphProps) {
   // Calculate effective session bounds
   const effectiveStart = useMemo(() => {
     if (events.length === 0) return sessionStart;
@@ -181,6 +183,33 @@ export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps
 
   // Calculate session duration
   const duration = effectiveEnd - effectiveStart;
+
+  // Calculate current position for replay indicator
+  const currentPositionPercent = useMemo(() => {
+    if (currentTimestamp === null || currentTimestamp === undefined || duration === 0) {
+      return null;
+    }
+    const elapsed = currentTimestamp - effectiveStart;
+    const percent = Math.max(0, Math.min(100, (elapsed / duration) * 100));
+    return percent;
+  }, [currentTimestamp, effectiveStart, duration]);
+
+  // Calculate which bucket index corresponds to current timestamp
+  const currentBucketIndex = useMemo(() => {
+    if (currentTimestamp === null || currentTimestamp === undefined) return null;
+    const elapsed = currentTimestamp - effectiveStart;
+    const index = Math.floor(elapsed / BUCKET_DURATION_MS);
+    return Math.max(0, Math.min(index, buckets.length - 1));
+  }, [currentTimestamp, effectiveStart, buckets.length]);
+
+  // Handle bar click for seeking
+  const handleBarClick = (bucket: Bucket) => {
+    if (onSeek) {
+      // Seek to the middle of the bucket
+      const midTime = bucket.startTime + (bucket.endTime - bucket.startTime) / 2;
+      onSeek(midTime);
+    }
+  };
 
   if (events.length === 0) {
     return (
@@ -260,8 +289,15 @@ export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps
               ? severityToColor(bucket.maxSeverity)
               : '#374151'; // gray-700 for idle
 
+            // Check if this is the current bucket in replay mode
+            const isCurrentBucket = currentBucketIndex === index;
+
             return (
-              <g key={index}>
+              <g
+                key={index}
+                onClick={() => handleBarClick(bucket)}
+                style={{ cursor: onSeek ? 'pointer' : 'default' }}
+              >
                 <rect
                   x={index * (4 + BAR_GAP)}
                   y={SVG_HEIGHT - normalizedHeight - 2}
@@ -269,7 +305,8 @@ export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps
                   height={normalizedHeight}
                   fill={color}
                   rx="1"
-                  className="transition-all duration-200"
+                  className={`transition-all duration-200 ${onSeek ? 'hover:opacity-80' : ''}`}
+                  opacity={isCurrentBucket ? 1 : (currentBucketIndex !== null && index > currentBucketIndex ? 0.3 : 1)}
                 >
                   <title>
                     {`Time: ${formatDuration(bucket.startTime - effectiveStart)} - ${formatDuration(bucket.endTime - effectiveStart)}\n` +
@@ -278,9 +315,36 @@ export function PulseGraph({ events, sessionStart, sessionEnd }: PulseGraphProps
                      `Severity: ${bucket.maxSeverity}`}
                   </title>
                 </rect>
+                {/* Highlight current bucket in replay mode */}
+                {isCurrentBucket && (
+                  <rect
+                    x={index * (4 + BAR_GAP) - 1}
+                    y={0}
+                    width={6}
+                    height={SVG_HEIGHT}
+                    fill="none"
+                    stroke="#a855f7"
+                    strokeWidth="1"
+                    rx="2"
+                    className="animate-pulse"
+                  />
+                )}
               </g>
             );
           })}
+
+          {/* Current position indicator line (replay mode) */}
+          {currentPositionPercent !== null && (
+            <line
+              x1={`${currentPositionPercent}%`}
+              y1="0"
+              x2={`${currentPositionPercent}%`}
+              y2={SVG_HEIGHT}
+              stroke="#a855f7"
+              strokeWidth="2"
+              className="transition-all duration-150"
+            />
+          )}
         </svg>
 
         {/* Time labels */}

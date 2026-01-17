@@ -9,6 +9,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 interface AIAnalysis {
   verdict: 'High Risk' | 'Medium Risk' | 'Low Risk';
   confidence: 'High' | 'Medium' | 'Low';
+  confidenceScore: number;  // Day 5: 0-100 percentage
   summary: string;
   key_evidence: string[];
 }
@@ -17,6 +18,7 @@ interface AIAnalysis {
 const DEMO_RESPONSE: AIAnalysis = {
   verdict: 'Medium Risk',
   confidence: 'Medium',
+  confidenceScore: 78,  // Day 5: Percentage confidence
   summary: 'The session shows several behavioral anomalies consistent with external assistance. Multiple bulk insertions and rhythm irregularities suggest possible use of code completion tools or reference materials.',
   key_evidence: [
     'Multiple bulk_insert events detected (>20 characters appearing without keystrokes)',
@@ -161,9 +163,16 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
 {
   "verdict": "High Risk" | "Medium Risk" | "Low Risk",
   "confidence": "High" | "Medium" | "Low",
+  "confidenceScore": 0-100,
   "summary": "2-3 sentence executive summary for a recruiter",
   "key_evidence": ["Evidence point 1", "Evidence point 2", "Evidence point 3"]
-}`;
+}
+
+The confidenceScore should be a precise percentage (0-100) representing your confidence in the verdict. Use:
+- 85-100: Very high confidence (clear evidence)
+- 60-84: Moderate confidence (suggestive patterns)
+- 30-59: Low confidence (ambiguous signals)
+- 0-29: Very low confidence (insufficient data)`;
 }
 
 function parseAnalysisResponse(text: string): AIAnalysis {
@@ -189,9 +198,20 @@ function parseAnalysisResponse(text: string): AIAnalysis {
   return {
     verdict: 'Medium Risk',
     confidence: 'Low',
+    confidenceScore: 50,
     summary: text.slice(0, 300) || 'Analysis completed but response format was unexpected.',
     key_evidence: ['Raw analysis available - structured parsing failed'],
   };
+}
+
+// Map confidence level to score if not provided
+function mapConfidenceToScore(confidence: string): number {
+  switch (confidence) {
+    case 'High': return 85;
+    case 'Medium': return 60;
+    case 'Low': return 35;
+    default: return 50;
+  }
 }
 
 function validateAnalysis(parsed: unknown): AIAnalysis {
@@ -205,13 +225,18 @@ function validateAnalysis(parsed: unknown): AIAnalysis {
     'key_evidence' in parsed
   ) {
     const p = parsed as Record<string, unknown>;
+    const confidence = (['High', 'Medium', 'Low'].includes(p.confidence as string)
+      ? p.confidence
+      : 'Medium') as AIAnalysis['confidence'];
+
     return {
       verdict: (['High Risk', 'Medium Risk', 'Low Risk'].includes(p.verdict as string)
         ? p.verdict
         : 'Medium Risk') as AIAnalysis['verdict'],
-      confidence: (['High', 'Medium', 'Low'].includes(p.confidence as string)
-        ? p.confidence
-        : 'Medium') as AIAnalysis['confidence'],
+      confidence,
+      confidenceScore: typeof p.confidenceScore === 'number'
+        ? Math.max(0, Math.min(100, Math.round(p.confidenceScore)))
+        : mapConfidenceToScore(confidence),
       summary: typeof p.summary === 'string' ? p.summary : 'Analysis completed.',
       key_evidence: Array.isArray(p.key_evidence)
         ? p.key_evidence.map(e => String(e))

@@ -17,11 +17,15 @@ export type IntegrityEventType =
   | 'linearity_alert'
   | 'rhythm_anomaly'
   | 'bulk_insert'
-  | 'read_pattern_warning'  // Day 4: Phone/overlay cheating (oscillation detection)
-  | 'suspicious_return'     // Day 4: ChatGPT memory dump pattern
-  | 'research_break'        // Day 4: Legitimate doc reading (BONUS)
-  | 'telemetry_heartbeat'   // Day 5: Activity heartbeat for Pulse Graph (every 5s)
-  | 'challenge_selected';   // Day 5: Challenge selection metadata
+  | 'read_pattern_warning'          // Day 4: Phone/overlay cheating (oscillation detection)
+  | 'suspicious_return'             // Day 4: ChatGPT memory dump pattern
+  | 'research_break'                // Day 4: Legitimate doc reading (BONUS)
+  | 'telemetry_heartbeat'           // Day 5: Activity heartbeat for Pulse Graph (every 5s)
+  | 'challenge_selected'            // Day 5: Challenge selection metadata
+  | 'interrogation_triggered'       // Day 5: When interrogation starts (suspicious event)
+  | 'interrogation_completed'       // Day 5: When candidate answers interrogation
+  | 'post_return_burst_suspicious'  // Day 5: Memory dump typing pattern (fast+consistent after return)
+  | 'low_undo_ratio';               // Day 5: Suspiciously clean typing (no mistakes)
 
 export type IntegritySeverity = 'info' | 'warning' | 'critical';
 
@@ -90,4 +94,35 @@ export interface IntegrityEventBatch {
 
 export interface EventsApiResponse {
   stored: number;
+}
+
+// Replay snapshot types (Day 5: Session Replay)
+export type ReplaySnapshotTrigger = 'interval' | 'session_end' | 'challenge_change' | 'bulk_insert';
+
+// Day 5: AI-Annotated Replay - Activity classification
+export type ActivityAnnotation =
+  | 'thinking'           // Extended pause, likely reading/planning
+  | 'coding'             // Active typing, adding code
+  | 'debugging'          // Code removal detected
+  | 'suspicious_paste'   // Large code injection detected
+  | 'idle';              // No activity
+
+export interface ReplaySnapshot {
+  _id?: string;
+  sessionId: string;
+  sequenceNumber: number;     // 0, 1, 2... for ordering
+  timestamp: number;          // Unix ms
+  code: string;               // Full code at this moment
+  cursorPosition?: { line: number; column: number };
+  metadata: {
+    charCount: number;
+    lineCount: number;
+    trigger: ReplaySnapshotTrigger;
+  };
+  // Day 5: AI-Annotated Replay
+  annotation?: {
+    activity: ActivityAnnotation;
+    confidence: number;       // 0-100
+    reason: string;
+  };
 }

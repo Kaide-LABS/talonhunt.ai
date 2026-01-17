@@ -9,19 +9,24 @@ import type { IntegrityEventBatch, TelemetryEvent, IntegrityEventType } from '@/
 // 3. Penalizing focus_loss punishes legitimate behavior while missing cheaters
 //
 // Day 4: Added oscillation detection and return signature analysis
+// Day 5: Added post-return burst analysis and undo ratio
 // research_break is a POSITIVE signal - rewards legitimate doc reading
 const SCORE_IMPACT: Record<IntegrityEventType, number> = {
   paste: -2,
-  focus_loss: 0,              // No penalty - actually indicates legitimate behavior
-  velocity_spike: -5,         // Physical impossibility (bot/macro)
-  rhythm_anomaly: -10,        // Statistical improbability (bot/transcription)
-  linearity_alert: -15,       // Behavioral improbability (AI transcription)
-  bulk_insert: -10,           // Code injection attack
-  read_pattern_warning: -8,   // Day 4: Phone/overlay cheating (oscillation)
-  suspicious_return: -10,     // Day 4: ChatGPT memory dump pattern
-  research_break: +5,         // Day 4: Legitimate doc reading (BONUS!)
-  telemetry_heartbeat: 0,     // Day 5: Activity heartbeat for Pulse Graph (neutral)
-  challenge_selected: 0,      // Day 5: Challenge selection (neutral - just metadata)
+  focus_loss: 0,                      // No penalty - actually indicates legitimate behavior
+  velocity_spike: -5,                 // Physical impossibility (bot/macro)
+  rhythm_anomaly: -10,                // Statistical improbability (bot/transcription)
+  linearity_alert: -15,               // Behavioral improbability (AI transcription)
+  bulk_insert: -10,                   // Code injection attack
+  read_pattern_warning: -8,           // Day 4: Phone/overlay cheating (oscillation)
+  suspicious_return: -10,             // Day 4: ChatGPT memory dump pattern
+  research_break: +5,                 // Day 4: Legitimate doc reading (BONUS!)
+  telemetry_heartbeat: 0,             // Day 5: Activity heartbeat for Pulse Graph (neutral)
+  challenge_selected: 0,              // Day 5: Challenge selection (neutral - just metadata)
+  interrogation_triggered: 0,         // Day 5: Auto-interrogation started (neutral - metadata)
+  interrogation_completed: 0,         // Day 5: Auto-interrogation answered (neutral - recruiter judges)
+  post_return_burst_suspicious: -8,   // Day 5: Memory dump typing pattern (not definitive)
+  low_undo_ratio: -5,                 // Day 5: Suspiciously clean typing (warning signal)
 };
 
 export async function POST(request: NextRequest) {

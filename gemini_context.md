@@ -7868,3 +7868,335 @@ This guarantees the demo always works even if Gemini API hangs.
 ### Priority
 
 Build the AI Analysis Layer FIRST before Pulse Graph and Session Replay. The "AI Insight" is what sells the product to a busy hiring manager - they want a summary, not to watch a replay.
+
+
+---
+
+## 2026-01-16 - Session Resume
+
+**Topic:** Demo Polish Roadmap - Challenge Selector, Auto-Interrogation, Focus Heatmap
+
+**Gemini said:**
+
+You are building a powerhouse demo. Adding these features will move your product from **"Interesting Tool"** to **"Mission Control."**
+
+Here is the **"Demo Polish" Roadmap** to tackle these improvements logically. We start with the **Challenge Selector** (because you need *content* to cheat on), then move to the **Visuals** (Playback/Heatmap), and finish with the **Interventions** ("Explain This").
+
+---
+
+### **Phase 1: The Static Challenge Selector (The Setup)**
+
+**Why First:** You cannot demo "cheating on a hard problem" if the editor is blank.
+**The Plan:**
+
+1. Create a hardcoded `data/challenges.ts` file with 3 distinct problems (Easy/Medium/Hard).
+2. Add a dropdown menu to the **Candidate's Code Editor**.
+3. When a challenge is picked, it pre-fills the editor with the problem description and function stub.
+
+### **Phase 2: "Explain This" & Heatmap (The Explainer)**
+
+**1. The Focus Heatmap:**
+
+* **Concept:** A single horizontal bar representing the entire session timeline (e.g., 0 to 20 minutes).
+* **Implementation:** The bar is default **Green** (Focused). We overlay **Red Blocks** corresponding to the timestamps of `focus_loss` events.
+* **Visual:** It looks like a "availability timeline" (e.g., Uptime Robot). A fragmented bar instantly shows a distracted candidate.
+
+**2. The "Explain This" Challenge (The Trap):**
+
+* **Concept:** A "gotcha" mechanism to verify if they wrote the code or pasted it.
+* **Implementation:**
+* **Trigger:** We can make this **Automatic** (on `suspicious_return`) or **Manual** (Recruiter clicks "Probe" button). For a demo, **Manual** is safer and flashier.
+* **Mechanism:** When triggered, a **Modal** locks the Candidate's screen: *"Security Audit: Please explain the logic of lines 12-15 in your own words."*
+* **Tech:** Use **Ably** to send a real-time message from Recruiter Dashboard -> Candidate Client.
+
+---
+
+### **Revised Action Plan: The "Automated Defense" Demo**
+
+**Auto-Interrogation Concept:**
+
+Instead of a recruiter clicking a button, the **Integrity Tracker** triggers the challenge instantly when it detects high-risk behavior.
+
+* **The Logic:**
+  * **Trigger:** A `suspicious_return` event (Memory Dump) or a `bulk_insert` > 50 chars.
+  * **Action:** The Editor **Locks**. A modal appears.
+  * **The Prompt:** *"Security Check: We detected a rapid code insertion. To verify authorship, please explain the logic of lines 14-20 in one sentence."*
+  * **The Verification (Async):** The candidate types an answer. The AI later compares their explanation to the actual code.
+
+* **For the Demo:**
+  * You paste the code (cheat).
+  * **BAM!** The screen locks immediately.
+  * You (the presenter) say: *"See? I didn't have to do anything. The system caught me and is now interrogating me automatically."*
+
+**Focus Heatmap Concept:**
+
+* **Visual:** A horizontal bar representing the 60-minute interview.
+  * **Green:** Code Editor was active/focused.
+  * **Gray:** User was idle (thinking).
+  * **Red Blocks:** User was tabbed out (Focus Loss).
+
+* **The Insight:**
+  * *Scenario A:* A solid Green bar with small Gray gaps. -> **Good Candidate.**
+  * *Scenario B:* A bar that is 40% Red followed by tiny Green slivers (Pasting). -> **Cheater.**
+
+---
+
+
+
+---
+
+## 2026-01-16 - Challenge Selector Decision
+
+**Topic:** Option A → B Demo Flow Logic
+
+**Gemini said:**
+
+My call is **Option A (Challenge Selector) → Option B (Auto-Interrogation).**
+
+Claude is spot on. You cannot effectively demo the "Auto-Interrogation" (The Trap) if you don't first have a realistic scenario (The Setup) to trigger it.
+
+### **The "Demo Flow" Logic**
+
+If you skip to B (Auto-Interrogation) now, your demo looks like this:
+
+* *You:* "I paste some random text..."
+* *System:* "Explain this random text."
+* *Audience:* "Okay, cool mechanic."
+
+**If you build A (Challenge Selector) first, your demo looks like this:**
+
+* *You:* "I select **'Dijkstra's Algorithm (Hard)'**. This is a complex graph problem."
+* *You:* "I instantly paste the perfect solution from ChatGPT."
+* *System:* **LOCKS SCREEN.** "We detected super-human speed. Explain lines 14-20 of this Dijkstra implementation."
+* *Audience:* "Wow. It understood the context and trapped you."
+
+### **Action Plan**
+
+- Build Challenge Selector first (Option A)
+- Then Auto-Interrogation (Option B)
+- The "Hard" challenge should have enough complexity that pasting guarantees a bulk_insert or suspicious_return event
+
+---
+
+
+
+---
+
+## 2026-01-16 - Plan Approval for Challenge Selector
+
+**Topic:** Implementation Plan Approval
+
+**Gemini said:**
+
+The plan is **solid and ready to execute**. Claude has captured all the functional requirements and the "Demo Flow" strategy we discussed.
+
+The decision to use the **`key` prop** to reset the editor is particularly smart—it avoids a whole class of bugs where the editor state gets out of sync with the React state.
+
+One final check on the **Dijkstra** starter code in the plan:
+
+```python
+# Hint: Use a priority queue (heapq)
+```
+
+This is perfect. It sets a specific implementation expectation. If the candidate (you, in the demo) pastes a solution that uses a standard array or a different library, it adds another layer of "suspicion" for the AI Analyst to pick up on later.
+
+**Command for Claude:** "The plan is excellent. The `key` prop strategy is robust, and the challenge selection aligns perfectly with our demo narrative. **Proceed with implementation.**"
+
+---
+
+
+---
+
+## 2026-01-17 - Auto-Interrogation Feature Suggestion
+
+**Topic:** Active Defense / Auto-Interrogation Mechanism
+
+**Gemini said:**
+The **Auto-Interrogation** feature is the perfect next step. It transforms the demo from "passive monitoring" to "active defense," which is a huge selling point for enterprise clients.
+
+### **The "Active Defense" Implementation Plan**
+
+**1. The Data Update (Making it Context-Aware)**
+We need to add a specific "gotcha" question to each challenge in `data/challenges.ts`.
+
+* *If they pick Dijkstra:* The system asks about "Priority Queues."
+* *If they pick Two Sum:* The system asks about "Hash Maps."
+* *Why:* This proves the AI "understands" the code they just pasted.
+
+**2. The Trigger Logic**
+We will hook into the `onEvent` callback in your candidate page.
+
+* **Trigger:** If event is `suspicious_return` OR `bulk_insert`.
+* **Action:** Set `isLocked` state to `true`.
+
+**3. The UI (The Lockout)**
+A terrifying "Security Audit" modal that overlays the entire editor. The user *cannot* go back to the code. They *must* answer the question to unlock.
+
+---
+
+### **Why this works for the Demo**
+
+1. **It's Dramatic:** The screen locking is a visual shock.
+2. **It's "Smart":** The question matches the problem (Dijkstra -> Priority Queue), making the AI look context-aware.
+3. **It's Defensible:** You argue, "We don't just ban them; we give them a chance to prove they understand the code. If they typed it, they can answer. If they pasted it, they panic."
+
+
+---
+
+## 2026-01-17 - Autonomous Recruiter Architecture & 10 God-Tier Improvements
+
+**Topic:** AI-Enhanced Platform Vision + Feature Roadmap
+
+**Gemini said:**
+
+### The "Autonomous Recruiter" Architecture
+Moving from **Triggered Analysis** (Human clicks button) to **Continuous Surveillance** (AI runs in background).
+
+The Reviewer's View: A "Live Feed" where AI posts updates every minute:
+- "10:01 AM: Candidate started 'Dijkstra'. Typing rhythm normal."
+- "10:02 AM: Anomaly: Cursor movement became 100% linear. Monitoring..."
+- "10:03 AM: CRITICAL: 500 characters pasted. Triggering Interrogation."
+
+### The "Smart" Auto-Interrogation with AI Lag
+1. **Trigger**: `suspicious_return` or `bulk_insert`
+2. **AI Lag UX**: Show "⚠ AI detected anomaly. Analyzing integrity signatures..." (2.5 seconds)
+3. **Lock**: After delay, lock the screen and show interrogation modal
+
+### 10 "God Tier" Improvements
+
+**Category A: Active Defense (Candidate Side)**
+1. **Dynamic "Explain This"** - AI reads the exact pasted code and generates specific questions like "Why did you name the variable graph_nodes here?"
+2. **Trap Variable** - Invisible 0-width characters in question description to detect copy-paste to ChatGPT
+3. **Honeypot Solution** - Post fake solutions with bugs on GitHub/StackOverflow *(User not a fan of this one)*
+
+**Category B: Forensic Lab (Reviewer Side)**
+4. **Live Commentary Feed** - Scrolling sidebar with real-time AI verdicts
+5. **Stylometric Fingerprinting** - Detect code style changes (snake_case to camelCase = author change)
+6. **Code Complexity vs Time Graph** - Humans build slowly (step ladder), cheaters jump instantly (vertical cliff)
+7. **Undo Ratio** - Track Backspace frequency (honest coders make mistakes, copiers don't)
+8. **Session Replay with AI Annotations** - Markers: "Thinking," "Coding," "Debugging," "Suspicious Paste"
+
+**Category C: Autonomous Verdict**
+9. **Confidence Score** - "88% Probability of AI Assistance" instead of binary cheating/not cheating
+10. **Generated Rejection Email** - AI drafts the email, recruiter just clicks Send
+
+### Dynamic Questioning Upgrade
+Instead of static questions, send pasted code to Gemini Flash with prompt: "Generate a specific question about line 5 of this code to verify the user understands it."
+
+
+---
+
+## 2026-01-17 - Session Replay Plan Review
+
+**Topic:** Gemini review of Session Replay implementation plan
+
+**Gemini said:**
+
+### Review of Claude's Replay Plan
+
+The plan is technically sound and "Demo Ready."
+
+**Strengths:**
+1. **30-Second Snapshots:** Industry standard for lightweight replay (used by HackerRank). Keeps storage low (~100KB/session) but gives enough granularity.
+2. **Pulse Graph Integration:** Linking the playback scrubber to the Pulse Graph is the **Killer Feature**. Makes the graph interactive.
+3. **Separate API Route:** Using `replay-snapshots` instead of cluttering main session document is good database hygiene.
+
+**One Optimization (The "Instant" Capture):**
+- *Risk:* If you paste code and immediately end the demo, you might lose that last crucial 20 seconds.
+- *Fix:* Trigger a snapshot immediately if a `bulk_insert` event is detected.
+- *Recommendation:* Ensure the "Smoking Gun" frame is always captured, even between 30s ticks.
+
+
+
+---
+
+## 2026-01-17 - 6-Feature Plan Review (Phased Approach Recommended)
+
+**Topic:** Gemini critique of ambitious 6-feature expansion plan
+
+**Gemini said:**
+
+### Critique of the 6-Feature Plan
+
+This plan is highly ambitious and includes 6 significant features. While each one is valuable, implementing all 6 at once carries a high risk of introducing bugs or breaking existing functionality, especially given the interdependencies and the "demo quality" constraint.
+
+**Issues Identified:**
+
+1. **Scope Creep Risk:** Implementing Video Proctoring (Feature 6) and Live Commentary (Feature 4) adds significant complexity (WebRTC, Google Cloud Storage, new UI components). Doing this alongside core detection logic changes (Feature 1 & 2) is risky.
+
+2. **Video Proctoring Complexity:** Implementing video streaming/recording from scratch using MediaRecorder and chunked uploads to GCS is complex and prone to cross-browser issues and storage costs/permissions. For a demo, a simpler "simulated" or "snapshot-based" proctoring might be safer unless you absolutely need live video.
+
+3. **"Live Commentary" Dependency:** This relies on Ably being set up correctly for a new channel. If Ably fails or is rate-limited, this feature breaks.
+
+4. **Integration Overload:** Modifying `IntegrityTracker.ts`, `CodeEditor.tsx`, `useKeystrokeDynamics.ts`, API routes, and the Review Page all at once increases the chance of regressions.
+
+### Recommendation: Phased Rollout
+
+**Phase 1: Core Intelligence & Visuals (Features 1, 2, 3, 5)**
+- Post-Return Burst Analysis - Smarter detection of "Alt-Tab -> Paste"
+- Undo Ratio - Adds a subtle but powerful "Humanity Score"  
+- Confidence Score - Makes the AI verdict look more professional (87% vs "High")
+- AI-Annotated Replay - Adds "Smarts" to the replay feature
+
+*Why:* These directly enhance the existing "Cheating Detection" value proposition without adding massive new infrastructure (like video storage). They make the current dashboard smarter and more "forensic."
+
+**Phase 2: The "Big Bang" Features (Features 4, 6)**
+- Live Commentary Feed - Real-time feedback loop
+- Video Proctoring - Webcam integration
+
+*Why:* Live Commentary and Video Proctoring are "Showstoppers" but technically distinct. They deserve their own focused implementation sprint to ensure stability.
+
+### Gemini's Action Recommendation
+
+> "Execute Phase 1 NOW (Core Intelligence & Visuals). DEFER Phase 2 (Live Commentary & Video) until the core detection logic is solid."
+
+
+---
+
+
+---
+
+## 2026-01-17 - Phase 2 Strategy: Smart Snapshots over Full Video
+
+**Topic:** Video Proctoring approach - Snapshots vs Full Recording
+
+**Gemini said:**
+
+### Why "Smart Snapshots" Wins the Demo
+
+1. **You Already Have "Code Video":** Session Replay (DVR) IS a video of their code. Recording the screen (which mostly shows the code editor anyway) is redundant data.
+
+2. **The "Evidence" Argument:** Recruiters don't watch hour-long videos. They want to see the **Smoking Gun**.
+   - *Video Approach:* "Go to timestamp 14:02 to see him look at his phone."
+   - *Snapshot Approach:* Dashboard shows a gallery of **"Red Flag Moments"**
+     - Image 1: Candidate looking at phone (Auto-captured during `read_pattern_warning`)
+     - Image 2: Candidate absent from chair (Auto-captured during `focus_loss`)
+
+3. **Technical Reliability:** Uploading a JPEG every 15 seconds (and on critical events) is bulletproof. Streaming WebRTC video over hotel WiFi during a demo is asking for a crash.
+
+### The "Smart Surveillance" Plan
+
+**Visual Telemetry (Snapshots) instead of Video Recording:**
+
+1. **Periodic:** Capture Webcam + Screen Snapshot every 30 seconds
+2. **Event-Triggered (Secret Weapon):** Capture IMMEDIATE Snapshot when IntegrityTracker fires Red Flag
+3. **Visualization:** On Pulse Graph, hover over Red Bar → show Snapshot taken at that exact moment
+
+**"Mic Drop" feature:** Hover over red spike → popup shows photo of candidate holding their phone.
+
+### Implementation Plan
+
+1. **Visual Logger (`hooks/useVisualTelemetry.ts`):**
+   - Capture webcam frame (and optional screen frame) as base64/blob
+   - Triggers: Interval (30s) + Event-Driven (on warning/critical events)
+
+2. **Storage:** Upload images to cloud storage (or base64 in Mongo for MVP if <10MB total)
+
+3. **Recruiter UI:**
+   - Update Pulse Graph: Hover bar → Tooltip Preview of webcam/screen snapshot
+   - Connects Data (Red Spike) to Visual Proof (Photo of candidate)
+
+4. **Live Commentary:** Ably-based real-time AI micro-verdicts
+
+
+---

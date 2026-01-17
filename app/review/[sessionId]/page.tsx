@@ -1,10 +1,11 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { PulseGraph } from '@/components/PulseGraph';
-import type { IntegrityEventType, IntegritySeverity } from '@/types';
+import { ReplayControls } from '@/components/replay/ReplayControls';
+import type { IntegrityEventType, IntegritySeverity, ReplaySnapshot } from '@/types';
 
 interface Session {
   sessionId: string;
@@ -23,6 +24,7 @@ interface Snapshot {
 interface AIAnalysis {
   verdict: 'High Risk' | 'Medium Risk' | 'Low Risk';
   confidence: 'High' | 'Medium' | 'Low';
+  confidenceScore: number;  // Day 5: 0-100 percentage
   summary: string;
   key_evidence: string[];
 }
@@ -50,6 +52,8 @@ function getEventSeverity(type: IntegrityEventType): IntegritySeverity {
     case 'bulk_insert':
     case 'paste':
     case 'read_pattern_warning':
+    case 'post_return_burst_suspicious':  // Day 5: Memory dump pattern
+    case 'low_undo_ratio':                // Day 5: Too clean typing
       return 'warning';
     case 'focus_loss':
     case 'research_break':
@@ -105,6 +109,16 @@ function getEventLabel(type: IntegrityEventType): string {
       return 'Research Break ✓';
     case 'telemetry_heartbeat':
       return 'Activity';
+    case 'challenge_selected':
+      return 'Challenge Selected';
+    case 'interrogation_triggered':
+      return 'Interrogation Started';
+    case 'interrogation_completed':
+      return 'Interrogation Answered';
+    case 'post_return_burst_suspicious':
+      return 'Burst Pattern (Memory Dump)';
+    case 'low_undo_ratio':
+      return 'Low Corrections';
     default:
       return type;
   }
@@ -132,6 +146,16 @@ function getEventIcon(type: IntegrityEventType): string {
       return '✅';
     case 'telemetry_heartbeat':
       return '💓';
+    case 'challenge_selected':
+      return '📝';
+    case 'interrogation_triggered':
+      return '🔍';
+    case 'interrogation_completed':
+      return '💬';
+    case 'post_return_burst_suspicious':
+      return '⚡';  // Fast burst
+    case 'low_undo_ratio':
+      return '✨';  // Too clean
     default:
       return '📊';
   }
@@ -216,6 +240,20 @@ function EventCard({ event }: { event: StoredEvent }) {
         {event.data?.length !== undefined && (
           <div>Characters: {String(event.data.length)}</div>
         )}
+        {/* Challenge selection details */}
+        {event.type === 'challenge_selected' && typeof event.data?.challengeTitle === 'string' && (
+          <div>Challenge: {event.data.challengeTitle} ({String(event.data.difficulty || 'unknown')})</div>
+        )}
+        {/* Interrogation Q&A details */}
+        {event.type === 'interrogation_completed' && typeof event.data?.question === 'string' && (
+          <div className="mt-2 p-2 bg-gray-900/50 rounded border border-amber-500/30">
+            <div className="text-amber-400 font-medium">Q: {event.data.question}</div>
+            <div className="text-gray-300 mt-1">A: {String(event.data.answer || '')}</div>
+          </div>
+        )}
+        {event.type === 'interrogation_triggered' && typeof event.data?.triggerType === 'string' && (
+          <div>Trigger: {event.data.triggerType} | Code: {String(event.data.insertedCodeLength || 0)} chars</div>
+        )}
       </div>
     </div>
   );
@@ -233,6 +271,8 @@ function RiskSignalsBar({ events }: { events: StoredEvent[] }) {
     readPattern: 0,
     suspiciousReturn: 0,
     researchBreak: 0,
+    burstPattern: 0,
+    lowUndo: 0,
   };
 
   for (const event of events) {
@@ -251,6 +291,12 @@ function RiskSignalsBar({ events }: { events: StoredEvent[] }) {
         break;
       case 'research_break':
         counts.researchBreak++;
+        break;
+      case 'post_return_burst_suspicious':
+        counts.burstPattern++;
+        break;
+      case 'low_undo_ratio':
+        counts.lowUndo++;
         break;
     }
   }
@@ -278,6 +324,16 @@ function RiskSignalsBar({ events }: { events: StoredEvent[] }) {
           🚨 Memory Dump: {counts.suspiciousReturn}
         </span>
       )}
+      {counts.burstPattern > 0 && (
+        <span className="px-2 py-0.5 text-xs rounded bg-yellow-900 text-yellow-300 border border-yellow-500">
+          ⚡ Burst: {counts.burstPattern}
+        </span>
+      )}
+      {counts.lowUndo > 0 && (
+        <span className="px-2 py-0.5 text-xs rounded bg-yellow-900 text-yellow-300 border border-yellow-500">
+          ✨ Low Undo: {counts.lowUndo}
+        </span>
+      )}
       {counts.researchBreak > 0 && (
         <span className="px-2 py-0.5 text-xs rounded bg-green-900 text-green-300 border border-green-500">
           ✅ Research: {counts.researchBreak}
@@ -303,6 +359,20 @@ export default function ReviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Replay mode state
+  const [replayMode, setReplayMode] = useState(false);
+  const [replaySnapshots, setReplaySnapshots] = useState<ReplaySnapshot[]>([]);
+  const [currentSnapshotIndex, setCurrentSnapshotIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isLoadingSnapshots, setIsLoadingSnapshots] = useState(false);
+
+  // AI Analysis panel resizing state
+  const [analysisPanelHeight, setAnalysisPanelHeight] = useState(160);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartY = useRef(0);
+  const resizeStartHeight = useRef(0);
 
   // Run AI analysis
   const runAnalysis = useCallback(async () => {
@@ -336,6 +406,123 @@ export default function ReviewPage() {
       // Ignore event fetch errors
     }
   }, [sessionId]);
+
+  // Fetch replay snapshots
+  const fetchReplaySnapshots = useCallback(async () => {
+    setIsLoadingSnapshots(true);
+    try {
+      const res = await fetch(`/api/replay-snapshots?sessionId=${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setReplaySnapshots(data.snapshots || []);
+        setCurrentSnapshotIndex(0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch replay snapshots:', err);
+    } finally {
+      setIsLoadingSnapshots(false);
+    }
+  }, [sessionId]);
+
+  // Toggle replay mode
+  const toggleReplayMode = useCallback(async () => {
+    if (!replayMode) {
+      // Entering replay mode - fetch snapshots
+      await fetchReplaySnapshots();
+      setIsPlaying(false);
+      setCurrentSnapshotIndex(0);
+    } else {
+      // Exiting replay mode
+      setIsPlaying(false);
+    }
+    setReplayMode(!replayMode);
+  }, [replayMode, fetchReplaySnapshots]);
+
+  // Seek to a specific snapshot
+  const handleSeek = useCallback((index: number) => {
+    setCurrentSnapshotIndex(Math.max(0, Math.min(index, replaySnapshots.length - 1)));
+    setIsPlaying(false);
+  }, [replaySnapshots.length]);
+
+  // Seek to a specific timestamp (from PulseGraph click)
+  const handleSeekToTimestamp = useCallback((timestamp: number) => {
+    if (replaySnapshots.length === 0) return;
+
+    // Find the snapshot closest to (but not after) this timestamp
+    let targetIndex = 0;
+    for (let i = 0; i < replaySnapshots.length; i++) {
+      if (replaySnapshots[i].timestamp <= timestamp) {
+        targetIndex = i;
+      } else {
+        break;
+      }
+    }
+    setCurrentSnapshotIndex(targetIndex);
+    setIsPlaying(false);
+  }, [replaySnapshots]);
+
+  // Playback effect
+  useEffect(() => {
+    if (!isPlaying || replaySnapshots.length === 0) return;
+
+    const intervalMs = 1000 / playbackSpeed; // 1s per snapshot at 1x, 0.5s at 2x, etc.
+    const interval = setInterval(() => {
+      setCurrentSnapshotIndex((i) => {
+        if (i < replaySnapshots.length - 1) {
+          return i + 1;
+        } else {
+          setIsPlaying(false);
+          return i;
+        }
+      });
+    }, intervalMs);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, playbackSpeed, replaySnapshots.length]);
+
+  // Current replay timestamp (for filtering events and PulseGraph indicator)
+  const currentReplayTimestamp = useMemo(() => {
+    if (!replayMode || replaySnapshots.length === 0) return null;
+    return replaySnapshots[currentSnapshotIndex]?.timestamp || null;
+  }, [replayMode, replaySnapshots, currentSnapshotIndex]);
+
+  // Filter events to show only those before current replay timestamp
+  const filteredEvents = useMemo(() => {
+    if (!replayMode || currentReplayTimestamp === null) {
+      return events;
+    }
+    return events.filter((e) => e.timestamp <= currentReplayTimestamp);
+  }, [events, replayMode, currentReplayTimestamp]);
+
+  // AI Analysis panel resize handlers
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartY.current = e.clientY;
+    resizeStartHeight.current = analysisPanelHeight;
+  }, [analysisPanelHeight]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = e.clientY - resizeStartY.current;
+      const newHeight = Math.max(80, Math.min(400, resizeStartHeight.current + delta));
+      setAnalysisPanelHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   // Fetch session info, snapshot, and events
   useEffect(() => {
@@ -405,12 +592,18 @@ export default function ReviewPage() {
     );
   }
 
-  // Calculate critical event count for risk assessment
-  const criticalCount = events.filter(e => getEventSeverity(e.type) === 'critical').length;
+  // Calculate critical event count for risk assessment (use filteredEvents in replay mode)
+  const displayEvents = replayMode ? filteredEvents : events;
+  const criticalCount = displayEvents.filter(e => getEventSeverity(e.type) === 'critical').length;
   const riskLevel = getRiskLevel(session.integrityScore, criticalCount);
 
   // Sort events by timestamp (newest first for timeline)
-  const sortedEvents = [...events].sort((a, b) => b.timestamp - a.timestamp);
+  const sortedEvents = [...displayEvents].sort((a, b) => b.timestamp - a.timestamp);
+
+  // Get the code to display (replay snapshot or live code)
+  const displayCode = replayMode && replaySnapshots.length > 0
+    ? replaySnapshots[currentSnapshotIndex]?.code || snapshot.code
+    : snapshot.code;
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-white">
@@ -430,7 +623,28 @@ export default function ReviewPage() {
               {riskLevel.label}
             </div>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
+            {/* Replay Mode Toggle */}
+            <button
+              onClick={toggleReplayMode}
+              disabled={isLoadingSnapshots}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                replayMode
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {isLoadingSnapshots ? (
+                <span className="flex items-center gap-2">
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Loading...
+                </span>
+              ) : replayMode ? (
+                'Exit Replay'
+              ) : (
+                '▶ Session Replay'
+              )}
+            </button>
             {/* Integrity Score */}
             <div className="text-center">
               <p className="text-xs text-gray-400 uppercase tracking-wide">Integrity Score</p>
@@ -441,101 +655,153 @@ export default function ReviewPage() {
             {/* Session Status */}
             <div
               className={`px-3 py-1 rounded-full text-sm ${
-                session.status === 'active'
+                replayMode
+                  ? 'bg-purple-900 text-purple-300 border border-purple-500'
+                  : session.status === 'active'
                   ? 'bg-green-900 text-green-300 border border-green-500'
                   : 'bg-gray-700 text-gray-300 border border-gray-600'
               }`}
             >
-              {session.status === 'active' ? '● Live' : session.status}
+              {replayMode ? '⏪ Replay Mode' : session.status === 'active' ? '● Live' : session.status}
             </div>
           </div>
         </div>
       </header>
 
       {/* Risk Signals Bar */}
-      <RiskSignalsBar events={events} />
+      <RiskSignalsBar events={displayEvents} />
+
+      {/* Replay Controls (shown only in replay mode) */}
+      {replayMode && (
+        <ReplayControls
+          snapshots={replaySnapshots}
+          currentIndex={currentSnapshotIndex}
+          isPlaying={isPlaying}
+          playbackSpeed={playbackSpeed}
+          sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
+          onSeek={handleSeek}
+          onPlayPause={() => setIsPlaying(!isPlaying)}
+          onSpeedChange={setPlaybackSpeed}
+        />
+      )}
 
       {/* Pulse Graph - Activity visualization over time */}
       <PulseGraph
-        events={events}
+        events={displayEvents}
         sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
+        onSeek={replayMode ? handleSeekToTimestamp : undefined}
+        currentTimestamp={currentReplayTimestamp}
       />
 
-      {/* AI Forensic Analysis Section */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">✨</span>
-            <h3 className="font-semibold">AI Forensic Analysis</h3>
-            <span className="text-xs text-gray-500">(Gemini 2.0 Flash)</span>
-          </div>
-          {!analysis && !isAnalyzing && (
-            <button
-              onClick={runAnalysis}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors animate-pulse"
-            >
-              Run Analysis
-            </button>
-          )}
-          {isAnalyzing && (
-            <div className="flex items-center gap-2 text-gray-400">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500" />
-              <span className="text-sm">Analyzing session...</span>
+      {/* AI Forensic Analysis Section - Resizable */}
+      <div
+        className="bg-gray-800 border-b border-gray-700 relative flex flex-col"
+        style={{ height: analysisPanelHeight, minHeight: 80, maxHeight: 400 }}
+      >
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">✨</span>
+              <h3 className="font-semibold">AI Forensic Analysis</h3>
+              <span className="text-xs text-gray-500">(Gemini 2.0 Flash)</span>
             </div>
+            {!analysis && !isAnalyzing && (
+              <button
+                onClick={runAnalysis}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors animate-pulse"
+              >
+                Run Analysis
+              </button>
+            )}
+            {isAnalyzing && (
+              <div className="flex items-center gap-2 text-gray-400">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-500" />
+                <span className="text-sm">Analyzing session...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Analysis Results */}
+          {analysis && (
+            <div className="mt-4 space-y-3">
+              {/* Verdict and Confidence */}
+              <div className="flex items-center gap-3">
+                <span
+                  className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    analysis.verdict === 'High Risk'
+                      ? 'bg-red-900 text-red-200 border border-red-700'
+                      : analysis.verdict === 'Medium Risk'
+                      ? 'bg-yellow-900 text-yellow-200 border border-yellow-700'
+                      : 'bg-green-900 text-green-200 border border-green-700'
+                  }`}
+                >
+                  {analysis.verdict}
+                </span>
+                {/* Day 5: Confidence Score with visual bar */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-400">Confidence:</span>
+                  <span className={`text-lg font-mono font-bold ${
+                    analysis.confidenceScore >= 70 ? 'text-red-400' :
+                    analysis.confidenceScore >= 40 ? 'text-yellow-400' : 'text-green-400'
+                  }`}>
+                    {analysis.confidenceScore}%
+                  </span>
+                  {/* Visual confidence bar */}
+                  <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        analysis.confidenceScore >= 70 ? 'bg-red-500' :
+                        analysis.confidenceScore >= 40 ? 'bg-yellow-500' : 'bg-green-500'
+                      }`}
+                      style={{ width: `${analysis.confidenceScore}%` }}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={runAnalysis}
+                  className="ml-auto text-xs text-gray-500 hover:text-gray-300"
+                >
+                  Re-analyze
+                </button>
+              </div>
+
+              {/* Summary */}
+              <p className="text-sm text-gray-300">{analysis.summary}</p>
+
+              {/* Key Evidence */}
+              <div>
+                <h4 className="text-xs text-gray-500 uppercase tracking-wide mb-1">Key Evidence</h4>
+                <ul className="space-y-1">
+                  {analysis.key_evidence.map((evidence, i) => (
+                    <li key={i} className="text-sm text-gray-400 flex items-start gap-2">
+                      <span className="text-purple-400">•</span>
+                      {evidence}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state hint */}
+          {!analysis && !isAnalyzing && (
+            <p className="mt-2 text-xs text-gray-500">
+              Click &quot;Run Analysis&quot; to get AI-powered forensic insights on this session.
+            </p>
           )}
         </div>
 
-        {/* Analysis Results */}
-        {analysis && (
-          <div className="mt-4 space-y-3">
-            {/* Verdict and Confidence */}
-            <div className="flex items-center gap-3">
-              <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  analysis.verdict === 'High Risk'
-                    ? 'bg-red-900 text-red-200 border border-red-700'
-                    : analysis.verdict === 'Medium Risk'
-                    ? 'bg-yellow-900 text-yellow-200 border border-yellow-700'
-                    : 'bg-green-900 text-green-200 border border-green-700'
-                }`}
-              >
-                {analysis.verdict}
-              </span>
-              <span className="text-sm text-gray-400">
-                Confidence: <span className="text-white">{analysis.confidence}</span>
-              </span>
-              <button
-                onClick={runAnalysis}
-                className="ml-auto text-xs text-gray-500 hover:text-gray-300"
-              >
-                Re-analyze
-              </button>
-            </div>
-
-            {/* Summary */}
-            <p className="text-sm text-gray-300">{analysis.summary}</p>
-
-            {/* Key Evidence */}
-            <div>
-              <h4 className="text-xs text-gray-500 uppercase tracking-wide mb-1">Key Evidence</h4>
-              <ul className="space-y-1">
-                {analysis.key_evidence.map((evidence, i) => (
-                  <li key={i} className="text-sm text-gray-400 flex items-start gap-2">
-                    <span className="text-purple-400">•</span>
-                    {evidence}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        {/* Empty state hint */}
-        {!analysis && !isAnalyzing && (
-          <p className="mt-2 text-xs text-gray-500">
-            Click &quot;Run Analysis&quot; to get AI-powered forensic insights on this session.
-          </p>
-        )}
+        {/* Resize Handle */}
+        <div
+          className={`absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize flex items-center justify-center group hover:bg-purple-600/30 transition-colors ${
+            isResizing ? 'bg-purple-600/50' : ''
+          }`}
+          onMouseDown={handleResizeStart}
+        >
+          <div className={`w-12 h-1 rounded-full bg-gray-600 group-hover:bg-purple-500 transition-colors ${
+            isResizing ? 'bg-purple-500' : ''
+          }`} />
+        </div>
       </div>
 
       {/* Main Content: 70% Editor, 30% Timeline */}
@@ -543,10 +809,11 @@ export default function ReviewPage() {
         {/* Code Editor - 70% */}
         <div className="w-[70%] h-full border-r border-gray-700">
           <CodeEditor
+            key={replayMode ? `replay-${currentSnapshotIndex}` : 'live'}
             sessionId={sessionId}
             language={session.language}
             isReadOnly={true}
-            initialCode={snapshot.code}
+            initialCode={displayCode}
           />
         </div>
 
@@ -554,7 +821,15 @@ export default function ReviewPage() {
         <div className="w-[30%] h-full flex flex-col bg-gray-900">
           <div className="px-4 py-3 border-b border-gray-700 bg-gray-800/50">
             <h2 className="font-semibold">Event Timeline</h2>
-            <p className="text-xs text-gray-400">{events.length} events captured</p>
+            <p className="text-xs text-gray-400">
+              {replayMode ? (
+                <span>
+                  {sortedEvents.length} of {events.length} events visible at this point
+                </span>
+              ) : (
+                <span>{events.length} events captured</span>
+              )}
+            </p>
           </div>
           <div className="flex-1 overflow-y-auto p-3">
             {sortedEvents.length === 0 ? (

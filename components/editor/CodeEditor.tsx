@@ -5,13 +5,18 @@ import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { useAbly } from '@/hooks/useAbly';
 import { useKeystrokeDynamics } from '@/hooks/useKeystrokeDynamics';
-import type { CodeUpdateMessage } from '@/types';
+import type { CodeUpdateMessage, ReplaySnapshotTrigger } from '@/types';
+
+// Replay snapshot interval (30 seconds)
+const SNAPSHOT_INTERVAL_MS = 30000;
 
 interface Props {
   sessionId: string;
   isReadOnly?: boolean;
   language?: string;
   initialCode?: string;
+  onSuspiciousInsert?: (triggerType: 'bulk_insert' | 'suspicious_return', insertedCode: string | null) => void;  // Day 5: Auto-interrogation
+  onCodeChange?: (code: string) => void;  // Day 5: Callback to report current code
 }
 
 export function CodeEditor({
@@ -19,6 +24,8 @@ export function CodeEditor({
   isReadOnly = false,
   language = 'javascript',
   initialCode = '// Start coding here...\n',
+  onSuspiciousInsert,
+  onCodeChange,
 }: Props) {
   const [code, setCode] = useState(initialCode);
   const [clientId] = useState(() => `user-${Math.random().toString(36).slice(2, 11)}`);
@@ -26,6 +33,8 @@ export function CodeEditor({
   const isRemoteUpdate = useRef(false);
   const lastSavedCode = useRef(initialCode);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const snapshotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSnapshotCode = useRef<string | null>(null);
 
   // Update code when initialCode prop changes (for reviewer loading from DB)
   useEffect(() => {
@@ -54,12 +63,23 @@ export function CodeEditor({
     onCodeUpdate: handleCodeUpdate,
   });
 
+  // Save replay snapshot (for session replay feature) - declared here to use in useKeystrokeDynamics
+  const saveReplaySnapshotRef = useRef<((code: string, trigger: ReplaySnapshotTrigger) => Promise<void>) | null>(null);
+
   // Keystroke dynamics tracking (only for candidate, not reviewer)
   const { isTracking } = useKeystrokeDynamics({
     sessionId,
     editor,
     enabled: !isReadOnly,
     publishIntegrityEvent,
+    onBulkInsert: () => {
+      // Trigger immediate snapshot on bulk insert detection
+      if (saveReplaySnapshotRef.current) {
+        const currentCode = editor?.getModel()?.getValue() || code;
+        saveReplaySnapshotRef.current(currentCode, 'bulk_insert');
+      }
+    },
+    onSuspiciousInsert,  // Day 5: Pass through for auto-interrogation
   });
 
   // Save code to DB (for candidate only) - persists code for late-joining reviewers
@@ -84,6 +104,40 @@ export function CodeEditor({
     }
   }, [sessionId, editor, isReadOnly]);
 
+  // Save replay snapshot (for session replay feature)
+  const saveReplaySnapshot = useCallback(async (codeToSave: string, trigger: ReplaySnapshotTrigger) => {
+    if (isReadOnly) return; // Only candidate saves
+
+    // Skip if code hasn't changed since last snapshot (for interval triggers)
+    if (trigger === 'interval' && codeToSave === lastSnapshotCode.current) {
+      console.log('[CodeEditor] Skipping replay snapshot - no changes');
+      return;
+    }
+
+    try {
+      const position = editor?.getPosition();
+      await fetch('/api/replay-snapshots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          code: codeToSave,
+          cursorPosition: position ? { line: position.lineNumber, column: position.column } : undefined,
+          trigger,
+        }),
+      });
+      lastSnapshotCode.current = codeToSave;
+      console.log(`[CodeEditor] Saved replay snapshot (trigger: ${trigger})`);
+    } catch (error) {
+      console.error('[CodeEditor] Failed to save replay snapshot:', error);
+    }
+  }, [sessionId, editor, isReadOnly]);
+
+  // Keep the ref updated for the bulk insert callback
+  useEffect(() => {
+    saveReplaySnapshotRef.current = saveReplaySnapshot;
+  }, [saveReplaySnapshot]);
+
   // Debounced publish for typing
   const publishTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -93,6 +147,11 @@ export function CodeEditor({
       if (value === undefined || isRemoteUpdate.current) return;
 
       setCode(value);
+
+      // Day 5: Report code changes to parent (for interrogation API)
+      if (onCodeChange) {
+        onCodeChange(value);
+      }
 
       // Only publish and save if NOT read-only (candidate only)
       if (!isReadOnly) {
@@ -115,12 +174,53 @@ export function CodeEditor({
         }, 2000);
       }
     },
-    [publishCode, editor, isReadOnly, connected, saveToDb]
+    [publishCode, editor, isReadOnly, connected, saveToDb, onCodeChange]
   );
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
   }, []);
+
+  // Keep refs for accessing current values in interval/cleanup without dependencies
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const codeRef = useRef(code);
+
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
+    codeRef.current = code;
+  }, [code]);
+
+  // Setup 30-second replay snapshot interval (candidate only)
+  useEffect(() => {
+    if (isReadOnly) return;
+
+    // Save initial snapshot using ref (delayed to allow saveReplaySnapshotRef to be set)
+    const initialSnapshotTimeout = setTimeout(() => {
+      if (saveReplaySnapshotRef.current) {
+        const currentCode = editorRef.current?.getModel()?.getValue() || codeRef.current;
+        saveReplaySnapshotRef.current(currentCode, 'interval');
+      }
+    }, 100);
+
+    // Set up interval for periodic snapshots
+    snapshotIntervalRef.current = setInterval(() => {
+      const currentCode = editorRef.current?.getModel()?.getValue() || codeRef.current;
+      if (saveReplaySnapshotRef.current && currentCode) {
+        saveReplaySnapshotRef.current(currentCode, 'interval');
+      }
+    }, SNAPSHOT_INTERVAL_MS);
+
+    return () => {
+      clearTimeout(initialSnapshotTimeout);
+      if (snapshotIntervalRef.current) {
+        clearInterval(snapshotIntervalRef.current);
+        snapshotIntervalRef.current = null;
+      }
+    };
+  }, [isReadOnly]); // Only re-run if isReadOnly changes
 
   // Cleanup timeouts on unmount + final save
   useEffect(() => {
@@ -130,6 +230,9 @@ export function CodeEditor({
       }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (snapshotIntervalRef.current) {
+        clearInterval(snapshotIntervalRef.current);
       }
     };
   }, []);
@@ -148,6 +251,17 @@ export function CodeEditor({
           body: JSON.stringify({ sessionId, code }),
         }).catch(() => {});
       }
+
+      // Final replay snapshot on session end
+      fetch('/api/replay-snapshots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          code,
+          trigger: 'session_end',
+        }),
+      }).catch(() => {});
     };
   }, [sessionId, code, isReadOnly]);
 

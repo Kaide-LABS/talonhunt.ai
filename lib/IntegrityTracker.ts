@@ -78,6 +78,18 @@ export class IntegrityTracker {
   private lastFocusRegainedTime = 0;
   private awaitingReturnKeystroke = false;
 
+  // Day 5: Post-Return Burst Analysis
+  // Analyzes first 5 keystrokes after returning from tab switch
+  private postReturnKeystrokes: number[] = [];
+  private collectingPostReturnBurst = false;
+
+  // Day 5: Undo Ratio (Backspace/Delete tracking)
+  // Honest coders make mistakes; transcribers don't
+  private backspaceCount = 0;
+  private deleteCount = 0;
+  private totalTypingKeystrokes = 0;
+  private lastUndoRatioCheck = 0;
+
   constructor(
     private sessionId: string,
     private onAnomaly: (event: TelemetryEvent) => void
@@ -86,9 +98,27 @@ export class IntegrityTracker {
   /**
    * Track a keystroke event
    * Calculates inter-key latency and checks for anomalies
+   * @param keyCode - The key code (e.g., 'KeyA', 'Backspace', 'Delete')
    */
-  public trackKeystroke(char: string): void {
+  public trackKeystroke(keyCode: string): void {
     const now = Date.now();
+
+    // Day 5: Undo Ratio - Track backspace/delete for humanity score
+    if (keyCode === 'Backspace') {
+      this.backspaceCount++;
+    } else if (keyCode === 'Delete') {
+      this.deleteCount++;
+    } else if (this.isTypingKey(keyCode)) {
+      this.totalTypingKeystrokes++;
+
+      // Check undo ratio every 50 keystrokes
+      if (this.totalTypingKeystrokes > 0 &&
+          this.totalTypingKeystrokes % 50 === 0 &&
+          this.totalTypingKeystrokes > this.lastUndoRatioCheck) {
+        this.analyzeUndoRatio();
+        this.lastUndoRatioCheck = this.totalTypingKeystrokes;
+      }
+    }
 
     // Track keystrokes for bulk_insert detection
     this.keystrokesSinceContentCheck++;
@@ -102,6 +132,9 @@ export class IntegrityTracker {
       console.log('[IntegrityTracker] First keystroke after return detected!');
       this.analyzeReturnSignature(now);
       this.awaitingReturnKeystroke = false;
+      // Day 5: Start collecting post-return burst
+      this.collectingPostReturnBurst = true;
+      this.postReturnKeystrokes = [];
     }
 
     // Ignore first key of session (no previous time to compare)
@@ -115,13 +148,22 @@ export class IntegrityTracker {
     const latency = now - this.lastKeyTime;
     this.lastKeyTime = now;
 
+    // Day 5: Post-Return Burst Analysis - Collect first 5 keystrokes after return
+    if (this.collectingPostReturnBurst) {
+      this.postReturnKeystrokes.push(latency);
+      if (this.postReturnKeystrokes.length >= 5) {
+        this.analyzePostReturnBurst();
+        this.collectingPostReturnBurst = false;
+      }
+    }
+
     // Day 4: Oscillation Detection - Track bursts
     this.trackBurst(latency, now);
 
     // 1. Critical Velocity Check (Machine speed detection)
     // Human typing rarely goes below 30ms between keystrokes
     if (latency < 30) {
-      this.addEvent('velocity_spike', { latency, char });
+      this.addEvent('velocity_spike', { latency, keyCode });
     }
 
     // 2. Update Running Variance (Human Rhythm Check)
@@ -129,6 +171,81 @@ export class IntegrityTracker {
 
     // 3. Enhanced Two-Factor Rhythm Analysis
     this.checkRhythmAnomaly();
+  }
+
+  /**
+   * Day 5: Check if a key code represents a typing key (not modifier/navigation)
+   */
+  private isTypingKey(keyCode: string): boolean {
+    // Letters, numbers, symbols - not modifiers/navigation
+    return keyCode.startsWith('Key') ||
+           keyCode.startsWith('Digit') ||
+           ['Space', 'Enter', 'Tab', 'Comma', 'Period', 'Semicolon',
+            'Quote', 'Backquote', 'BracketLeft', 'BracketRight',
+            'Slash', 'Backslash', 'Minus', 'Equal'].includes(keyCode);
+  }
+
+  /**
+   * Day 5: Undo Ratio Analysis
+   * Honest coders make mistakes (10-30% undo ratio)
+   * Transcription/paste has very low undo ratio (<5%)
+   */
+  private analyzeUndoRatio(): void {
+    const totalDeletions = this.backspaceCount + this.deleteCount;
+    const totalActions = this.totalTypingKeystrokes + totalDeletions;
+
+    if (totalActions < 100) return; // Need enough data
+
+    const undoRatio = totalDeletions / totalActions;
+
+    // Normal humans: 10-30% undo ratio
+    // Transcription/paste: < 5% undo ratio
+    if (undoRatio < 0.05) {
+      this.addEvent('low_undo_ratio', {
+        undoRatio: Math.round(undoRatio * 100),
+        backspaceCount: this.backspaceCount,
+        deleteCount: this.deleteCount,
+        totalKeystrokes: this.totalTypingKeystrokes,
+        message: `Only ${Math.round(undoRatio * 100)}% corrections - unusually clean typing`,
+      });
+    }
+  }
+
+  /**
+   * Day 5: Post-Return Burst Analysis
+   * Analyzes the pattern of first 5 keystrokes after returning from tab switch
+   *
+   * Memory dump pattern (ChatGPT copier):
+   * - Very fast (mean < 80ms)
+   * - Very consistent (stdDev < 25ms) - muscle memory from repeated copying
+   *
+   * Legitimate pattern (doc reader):
+   * - Slower, more varied - thinking while typing
+   */
+  private analyzePostReturnBurst(): void {
+    const latencies = this.postReturnKeystrokes;
+    if (latencies.length < 5) return;
+
+    const stats = this.calculateStats(latencies);
+    const mean = stats.mean;
+    const stdDev = stats.std;
+
+    console.log('[IntegrityTracker] Post-Return Burst Analysis:', {
+      mean: Math.round(mean),
+      stdDev: Math.round(stdDev),
+      latencies,
+    });
+
+    // Printer pattern: very fast + very consistent (memory dump)
+    // mean < 80ms AND stdDev < 25ms = suspicious
+    if (mean < 80 && stdDev < 25) {
+      this.addEvent('post_return_burst_suspicious', {
+        mean: Math.round(mean),
+        stdDev: Math.round(stdDev),
+        latencies,
+        message: 'Memory dump pattern: rapid consistent keystrokes after return',
+      });
+    }
   }
 
   /**
@@ -499,14 +616,17 @@ export class IntegrityTracker {
 
     // Real-time alert for notable events via Ably
     // Day 4: Added read_pattern_warning, suspicious_return, research_break
+    // Day 5: Added post_return_burst_suspicious, low_undo_ratio
     const notifyTypes: IntegrityEventType[] = [
       'velocity_spike',
       'rhythm_anomaly',
       'linearity_alert',
       'bulk_insert',
-      'read_pattern_warning',  // Day 4: Phone/overlay cheating
-      'suspicious_return',     // Day 4: ChatGPT memory dump
-      'research_break',        // Day 4: Legitimate research (positive signal!)
+      'read_pattern_warning',           // Day 4: Phone/overlay cheating
+      'suspicious_return',              // Day 4: ChatGPT memory dump
+      'research_break',                 // Day 4: Legitimate research (positive signal!)
+      'post_return_burst_suspicious',   // Day 5: Memory dump typing pattern
+      'low_undo_ratio',                 // Day 5: Suspiciously clean typing
     ];
     if (notifyTypes.includes(type)) {
       this.onAnomaly(event);
@@ -558,10 +678,18 @@ export class IntegrityTracker {
    * Day 5: Emit telemetry heartbeat for Pulse Graph visualization
    * Called every 5 seconds to record activity even when no anomalies occur
    * Returns null if no keystrokes since last heartbeat
+   * Now includes undoRatio for real-time humanity score tracking
    */
   public emitHeartbeat(): TelemetryEvent | null {
     // Only emit if there was activity (count > 0 means keystrokes tracked)
     if (this.count === 0) return null;
+
+    // Calculate current undo ratio
+    const totalDeletions = this.backspaceCount + this.deleteCount;
+    const totalActions = this.totalTypingKeystrokes + totalDeletions;
+    const undoRatio = totalActions > 0
+      ? Math.round((totalDeletions / totalActions) * 100)
+      : null;
 
     const event: TelemetryEvent = {
       type: 'telemetry_heartbeat',
@@ -570,6 +698,7 @@ export class IntegrityTracker {
         keystrokeCount: this.count,
         avgLatency: Math.round(this.mean),
         variance: Math.round(this.getVariance()),
+        undoRatio, // Day 5: Humanity score indicator
       },
     };
 

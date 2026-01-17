@@ -1,8 +1,9 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
+import { InterrogationModal } from '@/components/InterrogationModal';
 import { getChallengesForLanguage, getDifficultyColor, type Challenge } from '@/data/challenges';
 
 interface Session {
@@ -20,6 +21,15 @@ export default function CandidatePage() {
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [editorKey, setEditorKey] = useState(0); // Key to force CodeEditor remount
+
+  // Day 5: Auto-interrogation state
+  const [isInterrogating, setIsInterrogating] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [interrogationQuestion, setInterrogationQuestion] = useState<string | null>(null);
+  const [editorLocked, setEditorLocked] = useState(false);
+  const interrogationCountRef = useRef(0);
+  const lastInsertedCodeRef = useRef<string | null>(null);
+  const currentCodeRef = useRef<string>('');
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -79,6 +89,123 @@ export default function CandidatePage() {
 
   // Get available challenges for this session's language
   const availableChallenges = session ? getChallengesForLanguage(session.language) : [];
+
+  // Day 5: Handle suspicious insert detection (bulk_insert or suspicious_return)
+  const handleSuspiciousInsert = useCallback(async (
+    triggerType: 'bulk_insert' | 'suspicious_return',
+    insertedCode: string | null
+  ) => {
+    // Rate limit: max 3 interrogations per session
+    if (interrogationCountRef.current >= 3) {
+      console.log('[Interrogation] Rate limit reached, skipping');
+      return;
+    }
+
+    // Don't trigger if already interrogating
+    if (isInterrogating) {
+      console.log('[Interrogation] Already interrogating, skipping');
+      return;
+    }
+
+    console.log('[Interrogation] Triggered:', triggerType, 'insertedCode length:', insertedCode?.length);
+
+    // Store the inserted code for the API call
+    lastInsertedCodeRef.current = insertedCode;
+
+    // Lock editor and start interrogation
+    setEditorLocked(true);
+    setIsInterrogating(true);
+    setIsAnalyzing(true);
+    interrogationCountRef.current += 1;
+
+    // Log interrogation_triggered event
+    try {
+      await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          events: [{
+            type: 'interrogation_triggered',
+            timestamp: Date.now(),
+            data: {
+              triggerType,
+              insertedCodeLength: insertedCode?.length || 0,
+              interrogationNumber: interrogationCountRef.current,
+            },
+          }],
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to log interrogation_triggered:', err);
+    }
+
+    // Minimum 2.5s delay + API call in parallel for tension
+    try {
+      const [, response] = await Promise.all([
+        new Promise(resolve => setTimeout(resolve, 2500)),
+        fetch('/api/interrogate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            triggerType,
+            code: currentCodeRef.current,
+            insertedCode,
+            language: session?.language || 'python',
+            challengeTitle: selectedChallenge?.title,
+          }),
+        }),
+      ]);
+
+      const data = await response.json();
+      setIsAnalyzing(false);
+      setInterrogationQuestion(data.question);
+    } catch (err) {
+      console.error('Failed to get interrogation question:', err);
+      setIsAnalyzing(false);
+      setInterrogationQuestion('Please explain your approach here.');
+    }
+  }, [sessionId, session?.language, selectedChallenge?.title, isInterrogating]);
+
+  // Day 5: Track current code for interrogation API
+  const handleCodeChange = useCallback((code: string) => {
+    currentCodeRef.current = code;
+  }, []);
+
+  // Day 5: Handle interrogation answer submission
+  const handleInterrogationAnswer = useCallback(async (answer: string) => {
+    console.log('[Interrogation] Answer submitted:', answer.slice(0, 50));
+
+    // Log interrogation_completed event with Q&A
+    try {
+      await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          events: [{
+            type: 'interrogation_completed',
+            timestamp: Date.now(),
+            data: {
+              question: interrogationQuestion,
+              answer,
+              interrogationNumber: interrogationCountRef.current,
+              insertedCodeLength: lastInsertedCodeRef.current?.length || 0,
+            },
+          }],
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to log interrogation_completed:', err);
+    }
+
+    // Reset interrogation state
+    setIsInterrogating(false);
+    setInterrogationQuestion(null);
+    setEditorLocked(false);
+    lastInsertedCodeRef.current = null;
+  }, [sessionId, interrogationQuestion]);
 
   if (error) {
     return (
@@ -176,13 +303,23 @@ export default function CandidatePage() {
         )}
       </header>
 
-      <main className="flex-1">
+      <main className="flex-1 relative">
         <CodeEditor
           key={editorKey}
           sessionId={sessionId}
           language={session.language}
-          isReadOnly={false}
+          isReadOnly={editorLocked}
           initialCode={selectedChallenge?.starterCode}
+          onSuspiciousInsert={handleSuspiciousInsert}
+          onCodeChange={handleCodeChange}
+        />
+
+        {/* Day 5: Auto-Interrogation Modal */}
+        <InterrogationModal
+          isOpen={isInterrogating}
+          isAnalyzing={isAnalyzing}
+          question={interrogationQuestion}
+          onSubmit={handleInterrogationAnswer}
         />
       </main>
     </div>

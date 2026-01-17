@@ -10,6 +10,8 @@ interface UseKeystrokeDynamicsOptions {
   editor: Monaco.editor.IStandaloneCodeEditor | null;
   enabled?: boolean;
   publishIntegrityEvent?: (event: Omit<IntegrityEventMessage, 'timestamp'>) => void;
+  onBulkInsert?: () => void;  // Day 5: Callback for bulk insert detection (triggers replay snapshot)
+  onSuspiciousInsert?: (triggerType: 'bulk_insert' | 'suspicious_return', insertedCode: string | null) => void;  // Day 5: Auto-interrogation trigger
 }
 
 interface UseKeystrokeDynamicsReturn {
@@ -18,7 +20,7 @@ interface UseKeystrokeDynamicsReturn {
 
 // Map event types to severity levels
 // Day 4: Added read_pattern_warning, suspicious_return, research_break
-// Day 5: Added telemetry_heartbeat
+// Day 5: Added telemetry_heartbeat, post_return_burst_suspicious, low_undo_ratio
 function getSeverity(event: TelemetryEvent): IntegritySeverity {
   // Check if event has severity in data (from enhanced rhythm detection)
   if (event.data?.severity === 'critical') return 'critical';
@@ -34,6 +36,8 @@ function getSeverity(event: TelemetryEvent): IntegritySeverity {
     case 'bulk_insert':
     case 'paste':
     case 'read_pattern_warning':   // Day 4: Phone/overlay cheating
+    case 'post_return_burst_suspicious':  // Day 5: Memory dump typing pattern
+    case 'low_undo_ratio':         // Day 5: Too clean typing
       return 'warning';
     case 'focus_loss':
     case 'research_break':         // Day 4: Positive signal (info level)
@@ -48,14 +52,25 @@ export function useKeystrokeDynamics({
   editor,
   enabled = true,
   publishIntegrityEvent,
+  onBulkInsert,
+  onSuspiciousInsert,
 }: UseKeystrokeDynamicsOptions): UseKeystrokeDynamicsReturn {
   const trackerRef = useRef<IntegrityTracker | null>(null);
   const isMountedRef = useRef(true);
   const flushIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastInsertedCodeRef = useRef<string | null>(null);  // Day 5: Track last inserted code for interrogation
 
   // Use ref to hold publishIntegrityEvent to avoid recreating callbacks
   const publishRef = useRef(publishIntegrityEvent);
   publishRef.current = publishIntegrityEvent;
+
+  // Use ref for onBulkInsert callback
+  const onBulkInsertRef = useRef(onBulkInsert);
+  onBulkInsertRef.current = onBulkInsert;
+
+  // Use ref for onSuspiciousInsert callback (auto-interrogation)
+  const onSuspiciousInsertRef = useRef(onSuspiciousInsert);
+  onSuspiciousInsertRef.current = onSuspiciousInsert;
 
   // Handle anomaly detection - publish to Ably for real-time alerts
   const handleAnomaly = useCallback(
@@ -67,6 +82,18 @@ export function useKeystrokeDynamics({
           severity: getSeverity(event),
           data: event.data,
         });
+      }
+
+      // Day 5: Trigger replay snapshot on bulk insert detection
+      if (event.type === 'bulk_insert' && onBulkInsertRef.current) {
+        console.log('[IntegrityTracker] Triggering bulk insert snapshot');
+        onBulkInsertRef.current();
+      }
+
+      // Day 5: Trigger auto-interrogation on suspicious events
+      if ((event.type === 'bulk_insert' || event.type === 'suspicious_return') && onSuspiciousInsertRef.current) {
+        console.log('[IntegrityTracker] Triggering auto-interrogation:', event.type);
+        onSuspiciousInsertRef.current(event.type, lastInsertedCodeRef.current);
       }
     },
     [] // No dependencies - uses ref
@@ -166,6 +193,11 @@ export function useKeystrokeDynamics({
         // Detect large insertions (likely paste)
         if (insertedLength > 50 || (insertedLength > 10 && change.text.includes('\n'))) {
           tracker.trackPaste(insertedLength);
+        }
+
+        // Day 5: Capture inserted text for auto-interrogation (>20 chars)
+        if (insertedLength > 20) {
+          lastInsertedCodeRef.current = change.text;
         }
 
         // Track content changes for bulk_insert detection

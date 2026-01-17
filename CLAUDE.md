@@ -36,38 +36,36 @@ GEMINI_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-16
-**Status**: Pulse Graph visualization complete and tested
+**Status**: Challenge selector implemented and tested
 
 **Completed (this session)**:
-- Implemented Pulse Graph visualization for recruiter dashboard
-- Added `telemetry_heartbeat` event type (emits every 5s with keystroke count)
-- Created `components/PulseGraph.tsx` - custom SVG bar chart:
-  - 5-second buckets for EKG-style resolution
-  - Bar height = activity volume (keystrokes + paste chars)
-  - Bar color = max severity in bucket (green/yellow/red)
-  - 1px gray baseline for idle periods (thinking)
-  - Hover tooltips, legend, quick stats
-- Integrated into dashboard between Risk Signals Bar and AI Analysis
-- Updated SCORE_IMPACT to include telemetry_heartbeat (neutral, 0 points)
-- Tested in browser - working as expected
-- Committed and pushed (commit `91eccf6`)
+- Added challenge selector to candidate UI (commit `12c2adb`)
+- Created `data/challenges.ts` with 3 Python challenges:
+  - FizzBuzz (easy) - for honest typing demos
+  - Two Sum (medium) - classic interview problem
+  - Dijkstra's Algorithm (hard) - cheating trap for AI-assisted detection
+- Added `challenge_selected` event type (neutral, 0 score impact)
+- Added dropdown UI to candidate page header:
+  - LeetCode-style dark theme
+  - Difficulty color coding (green/yellow/red)
+  - Challenges filtered by session language
+- Editor resets to starter code via React key prop remount
 
 **New Files**:
-- `components/PulseGraph.tsx` - Custom SVG pulse visualization
+- `data/challenges.ts` - Challenge definitions with starter code
 
 **Modified Files**:
-- `types/index.ts` - Added telemetry_heartbeat event type
-- `lib/IntegrityTracker.ts` - Added emitHeartbeat() method
-- `hooks/useKeystrokeDynamics.ts` - Calls heartbeat before each 5s flush
-- `app/review/[sessionId]/page.tsx` - Integrated PulseGraph component
+- `types/index.ts` - Added challenge_selected event type
 - `app/api/events/route.ts` + `netlify/functions/events.ts` - Added score impact
+- `app/candidate/[sessionId]/page.tsx` - Challenge dropdown UI
 
 **Technical Notes**:
-- Heartbeat captures: keystrokeCount, avgLatency, variance
-- Graph scales bar heights relative to max volume in session
-- Empty buckets show 1px gray baseline (candidate thinking)
+- Currently only Python challenges (filter by session language)
+- challenge_selected events logged with challengeId, title, difficulty
+- No score impact - informational metadata only
 
 **Next**:
 - Session Replay feature
-- Consider: Post-Return Burst Analysis (first 5 keystrokes pattern)
-- Consider: Video proctoring integration
+- Add JavaScript/TypeScript challenges
+- Post-Return Burst Analysis (first 5 keystrokes pattern)
+- Video proctoring integration

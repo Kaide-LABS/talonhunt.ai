@@ -5,7 +5,9 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { PulseGraph } from '@/components/PulseGraph';
 import { ReplayControls } from '@/components/replay/ReplayControls';
-import type { IntegrityEventType, IntegritySeverity, ReplaySnapshot } from '@/types';
+import { LiveCommentaryFeed } from '@/components/LiveCommentaryFeed';
+import { useAbly } from '@/hooks/useAbly';
+import type { IntegrityEventType, IntegritySeverity, ReplaySnapshot, VisualSnapshot, AIVerdictMessage } from '@/types';
 
 interface Session {
   sessionId: string;
@@ -368,11 +370,40 @@ export default function ReviewPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isLoadingSnapshots, setIsLoadingSnapshots] = useState(false);
 
+  // Phase 2: Visual snapshots and Live Commentary state
+  const [visualSnapshots, setVisualSnapshots] = useState<VisualSnapshot[]>([]);
+  const [aiVerdicts, setAIVerdicts] = useState<AIVerdictMessage[]>([]);
+
   // AI Analysis panel resizing state
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(160);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartY = useRef(0);
   const resizeStartHeight = useRef(0);
+
+  // Phase 2: Handle incoming AI verdicts for Live Commentary
+  const handleAIVerdict = useCallback((verdict: AIVerdictMessage) => {
+    setAIVerdicts((prev) => [...prev, verdict]);
+  }, []);
+
+  // Phase 2: Ably connection for Live Commentary (only for active sessions)
+  const { connected: ablyConnected } = useAbly({
+    sessionId,
+    clientId: `reviewer-${sessionId}`,
+    onAIVerdict: handleAIVerdict,
+  });
+
+  // Phase 2: Fetch visual snapshots
+  const fetchVisualSnapshots = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/visual-snapshots?sessionId=${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setVisualSnapshots(data.snapshots || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch visual snapshots:', err);
+    }
+  }, [sessionId]);
 
   // Run AI analysis
   const runAnalysis = useCallback(async () => {
@@ -546,6 +577,9 @@ export default function ReviewPage() {
 
         // Fetch events after session loads
         await fetchEvents();
+
+        // Phase 2: Fetch visual snapshots
+        await fetchVisualSnapshots();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load session');
       }
@@ -568,7 +602,7 @@ export default function ReviewPage() {
     }, 3000); // Poll every 3s for more responsive updates
 
     return () => clearInterval(pollInterval);
-  }, [sessionId, fetchEvents]);
+  }, [sessionId, fetchEvents, fetchVisualSnapshots]);
 
   if (error) {
     return (
@@ -691,6 +725,7 @@ export default function ReviewPage() {
         sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
         onSeek={replayMode ? handleSeekToTimestamp : undefined}
         currentTimestamp={currentReplayTimestamp}
+        visualSnapshots={visualSnapshots}
       />
 
       {/* AI Forensic Analysis Section - Resizable */}
@@ -819,6 +854,18 @@ export default function ReviewPage() {
 
         {/* Event Timeline - 30% */}
         <div className="w-[30%] h-full flex flex-col bg-gray-900">
+          {/* Phase 2: Live Commentary Feed (for active sessions) */}
+          {session.status === 'active' && (
+            <div className="p-3 border-b border-gray-700">
+              <LiveCommentaryFeed verdicts={aiVerdicts} />
+              {ablyConnected && (
+                <p className="text-xs text-green-500 mt-1 text-center">
+                  Connected to live feed
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="px-4 py-3 border-b border-gray-700 bg-gray-800/50">
             <h2 className="font-semibold">Event Timeline</h2>
             <p className="text-xs text-gray-400">

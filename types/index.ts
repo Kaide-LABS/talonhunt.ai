@@ -99,6 +99,34 @@ export interface EventsApiResponse {
 // Replay snapshot types (Day 5: Session Replay)
 export type ReplaySnapshotTrigger = 'interval' | 'session_end' | 'challenge_change' | 'bulk_insert';
 
+// Phase 2: Visual snapshot types (Webcam Telemetry)
+export type VisualSnapshotTrigger =
+  | 'interval'                       // 45-second heartbeat
+  | 'suspicious_return'              // Tab return after ChatGPT usage
+  | 'bulk_insert'                    // Large code injection
+  | 'focus_loss'                     // Tab switch away
+  | 'post_return_burst_suspicious';  // Memory dump typing pattern
+
+export interface VisualSnapshot {
+  _id?: string;
+  sessionId: string;
+  sequenceNumber: number;
+  timestamp: number;
+  imageData: string;  // Base64 JPEG
+  trigger: VisualSnapshotTrigger;
+}
+
+// Phase 2: AI Live Commentary types
+export type AIVerdictType = 'suspicious' | 'concerning' | 'normal' | 'positive';
+
+export interface AIVerdictMessage {
+  timestamp: number;
+  verdict: AIVerdictType;
+  eventType: IntegrityEventType;
+  summary: string;
+  confidence: number;  // 0-100
+}
+
 // Day 5: AI-Annotated Replay - Activity classification
 export type ActivityAnnotation =
   | 'thinking'           // Extended pause, likely reading/planning

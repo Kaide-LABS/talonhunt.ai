@@ -5,6 +5,8 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { InterrogationModal } from '@/components/InterrogationModal';
 import { getChallengesForLanguage, getDifficultyColor, type Challenge } from '@/data/challenges';
+import { useWebcamTelemetry } from '@/hooks/useWebcamTelemetry';
+import type { VisualSnapshotTrigger } from '@/types';
 
 interface Session {
   sessionId: string;
@@ -30,6 +32,18 @@ export default function CandidatePage() {
   const interrogationCountRef = useRef(0);
   const lastInsertedCodeRef = useRef<string | null>(null);
   const currentCodeRef = useRef<string>('');
+
+  // Phase 2: Webcam telemetry for visual snapshots
+  const {
+    hasPermission: hasCameraPermission,
+    permissionDenied: cameraPermissionDenied,
+    snapshotCount,
+    captureSnapshot,
+    isCapped: snapshotsCapped,
+  } = useWebcamTelemetry({
+    sessionId,
+    enabled: !!session, // Only enable after session loads
+  });
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -95,6 +109,12 @@ export default function CandidatePage() {
     triggerType: 'bulk_insert' | 'suspicious_return',
     insertedCode: string | null
   ) => {
+    // Phase 2: Capture webcam snapshot on suspicious events
+    if (hasCameraPermission && !snapshotsCapped) {
+      console.log('[Webcam] Capturing snapshot for suspicious event:', triggerType);
+      captureSnapshot(triggerType as VisualSnapshotTrigger);
+    }
+
     // Rate limit: max 3 interrogations per session
     if (interrogationCountRef.current >= 3) {
       console.log('[Interrogation] Rate limit reached, skipping');
@@ -166,7 +186,7 @@ export default function CandidatePage() {
       setIsAnalyzing(false);
       setInterrogationQuestion('Please explain your approach here.');
     }
-  }, [sessionId, session?.language, selectedChallenge?.title, isInterrogating]);
+  }, [sessionId, session?.language, selectedChallenge?.title, isInterrogating, hasCameraPermission, snapshotsCapped, captureSnapshot]);
 
   // Day 5: Track current code for interrogation API
   const handleCodeChange = useCallback((code: string) => {
@@ -239,12 +259,28 @@ export default function CandidatePage() {
               Session: {sessionId} | Language: {session.language}
             </p>
           </div>
-          <button
-            onClick={copyReviewerLink}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-md transition-colors"
-          >
-            {copied ? 'Copied!' : 'Copy Reviewer Link'}
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Phase 2: Camera status indicator */}
+            {cameraPermissionDenied ? (
+              <span className="text-xs text-yellow-500 flex items-center gap-1">
+                <span>📷</span> Camera denied
+              </span>
+            ) : hasCameraPermission ? (
+              <span className="text-xs text-green-500 flex items-center gap-1">
+                <span>📷</span> {snapshotCount}/30
+              </span>
+            ) : (
+              <span className="text-xs text-gray-500 flex items-center gap-1">
+                <span>📷</span> Requesting...
+              </span>
+            )}
+            <button
+              onClick={copyReviewerLink}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-md transition-colors"
+            >
+              {copied ? 'Copied!' : 'Copy Reviewer Link'}
+            </button>
+          </div>
         </div>
 
         {/* Challenge Selector */}

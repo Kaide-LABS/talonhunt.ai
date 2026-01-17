@@ -3,19 +3,63 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { IntegrityTracker } from '@/lib/IntegrityTracker';
-import type { TelemetryEvent, IntegrityEventMessage, IntegritySeverity } from '@/types';
+import type { TelemetryEvent, IntegrityEventMessage, IntegritySeverity, AIVerdictMessage, AIVerdictType, IntegrityEventType } from '@/types';
 
 interface UseKeystrokeDynamicsOptions {
   sessionId: string;
   editor: Monaco.editor.IStandaloneCodeEditor | null;
   enabled?: boolean;
   publishIntegrityEvent?: (event: Omit<IntegrityEventMessage, 'timestamp'>) => void;
+  publishAIVerdict?: (verdict: Omit<AIVerdictMessage, 'timestamp'>) => void;  // Phase 2: Live Commentary
   onBulkInsert?: () => void;  // Day 5: Callback for bulk insert detection (triggers replay snapshot)
   onSuspiciousInsert?: (triggerType: 'bulk_insert' | 'suspicious_return', insertedCode: string | null) => void;  // Day 5: Auto-interrogation trigger
 }
 
 interface UseKeystrokeDynamicsReturn {
   isTracking: boolean;
+}
+
+// Phase 2: Map severity to AI verdict type for Live Commentary
+function severityToVerdict(severity: IntegritySeverity): AIVerdictType {
+  switch (severity) {
+    case 'critical':
+      return 'suspicious';
+    case 'warning':
+      return 'concerning';
+    case 'info':
+    default:
+      return 'normal';
+  }
+}
+
+// Phase 2: Generate human-readable summary for Live Commentary
+function generateVerdictSummary(eventType: IntegrityEventType): string {
+  switch (eventType) {
+    case 'suspicious_return':
+      return 'Memory dump detected: fast typing after tab return suggests copied code';
+    case 'bulk_insert':
+      return 'Large code injection: significant code added in short time';
+    case 'linearity_alert':
+      return 'AI typing pattern: unusually linear cursor movement detected';
+    case 'velocity_spike':
+      return 'Superhuman typing speed: exceeds normal human capability';
+    case 'rhythm_anomaly':
+      return 'Robotic rhythm: unnaturally consistent timing between keystrokes';
+    case 'read_pattern_warning':
+      return 'Read pattern: oscillating focus suggests reading from another source';
+    case 'post_return_burst_suspicious':
+      return 'Burst typing: suspiciously fast and consistent after returning';
+    case 'low_undo_ratio':
+      return 'Too perfect: unusually low correction rate (no mistakes)';
+    case 'paste':
+      return 'Large paste detected';
+    case 'focus_loss':
+      return 'Tab switch: candidate left the editor';
+    case 'research_break':
+      return 'Research break: legitimate documentation lookup pattern';
+    default:
+      return `Event detected: ${eventType}`;
+  }
 }
 
 // Map event types to severity levels
@@ -52,6 +96,7 @@ export function useKeystrokeDynamics({
   editor,
   enabled = true,
   publishIntegrityEvent,
+  publishAIVerdict,
   onBulkInsert,
   onSuspiciousInsert,
 }: UseKeystrokeDynamicsOptions): UseKeystrokeDynamicsReturn {
@@ -64,6 +109,10 @@ export function useKeystrokeDynamics({
   const publishRef = useRef(publishIntegrityEvent);
   publishRef.current = publishIntegrityEvent;
 
+  // Phase 2: Use ref for publishAIVerdict (Live Commentary)
+  const publishVerdictRef = useRef(publishAIVerdict);
+  publishVerdictRef.current = publishAIVerdict;
+
   // Use ref for onBulkInsert callback
   const onBulkInsertRef = useRef(onBulkInsert);
   onBulkInsertRef.current = onBulkInsert;
@@ -75,12 +124,29 @@ export function useKeystrokeDynamics({
   // Handle anomaly detection - publish to Ably for real-time alerts
   const handleAnomaly = useCallback(
     (event: TelemetryEvent) => {
+      const severity = getSeverity(event);
       console.log('[IntegrityTracker] Anomaly detected:', event.type, event.data);
+
       if (publishRef.current) {
         publishRef.current({
           eventType: event.type,
-          severity: getSeverity(event),
+          severity,
           data: event.data,
+        });
+      }
+
+      // Phase 2: Publish AI verdict for Live Commentary (Gemini's fix - the "Missing Link")
+      // Only publish verdicts for significant events (warning or critical)
+      if (publishVerdictRef.current && (severity === 'warning' || severity === 'critical')) {
+        const verdict = severityToVerdict(severity);
+        const summary = generateVerdictSummary(event.type);
+
+        console.log('[IntegrityTracker] Publishing AI verdict:', verdict, summary);
+        publishVerdictRef.current({
+          verdict,
+          eventType: event.type,
+          summary,
+          confidence: severity === 'critical' ? 85 : 65,
         });
       }
 

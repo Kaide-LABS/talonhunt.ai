@@ -8200,3 +8200,132 @@ This plan is highly ambitious and includes 6 significant features. While each on
 
 
 ---
+
+---
+
+## 2026-01-17 - Phase 2 Planning
+
+**Topic:** Smart Snapshots vs Full Video Recording Decision
+
+**Gemini said:**
+You should absolutely choose **Option 2: Snapshot-based (Periodic + Event-Triggered).**
+
+**Why "Smart Snapshots" Wins the Demo:**
+1. **You Already Have "Code Video":** Session Replay (DVR) *is* a video of their code. Recording the screen is redundant.
+2. **The "Evidence" Argument:** Recruiters don't watch hour-long videos. They want the "Smoking Gun" - a gallery of Red Flag Moments.
+3. **Technical Reliability:** Uploading a JPEG every 30 seconds is bulletproof. WebRTC streaming is asking for a crash.
+
+**The Verdict: Drop Screen Capture, Keep Webcam.**
+- `getDisplayMedia` forces user to select a window every time - interrupts demo flow
+- The most convincing evidence is **what the human is doing** (looking at phone, whispering off-camera)
+
+**Implementation Plan:**
+1. Webcam Telemetry (`hooks/useWebcamTelemetry.ts`) - 30s interval + event-triggered
+2. Storage: Base64 in MongoDB, cap at 30 snapshots
+3. PulseGraph hover preview - Camera icon on red spikes, tooltip shows photo
+4. Live Commentary Feed - Ably-powered real-time AI verdicts
+
+---
+
+---
+
+## 2026-01-17 - Phase 2 Implementation Approval
+
+**Topic:** Webcam Telemetry + Live Commentary - Implementation Specs
+
+**Gemini said:**
+This allows us to move forward immediately. Claude basically said, "Yes, your logic is sound, let's build it," but he asked for clarification on **Permissions** and **Triggers**.
+
+Here is the response to give him that unblocks the coding.
+
+**Please proceed with the implementation using these specifications:**
+
+1. **Permission Strategy:** Request camera access immediately on page load (standard for proctored exams).
+   - *Failure Mode:* If denied, show a Toast warning ('Camera access required for verification') but **allow the session to continue**. We don't want the demo to hard-stop if a permission is misclicked.
+
+2. **Snapshot Specs:**
+   - **Resolution:** 640x480 (sufficient for evidence).
+   - **Format:** JPEG at 0.5 quality. This keeps file size tiny (~30-40KB).
+   - **Storage:** Base64 string in MongoDB `visual_snapshots` collection.
+
+3. **Explicit Trigger List:**
+   - `suspicious_return` (The memory dump)
+   - `bulk_insert` (The paste)
+   - `focus_loss` (The tab switch)
+   - *Plus:* The 30-second heartbeat.
+
+**Execution Tasks:**
+1. Create `hooks/useWebcamTelemetry.ts`.
+2. Create the API route `app/api/visual-snapshots/route.ts`.
+3. Update `PulseGraph.tsx` to fetch these snapshots and show the **Camera Icon 📷** + Tooltip on the timeline.
+
+---
+
+## 2026-01-17 - Phase 2 Final Execution Plan (Approved)
+
+**Topic:** Smart Budgeting Strategy Approval
+
+**Gemini said:**
+This is **Senior Engineer level thinking**.
+
+You identified the critical failure mode of the previous plan: **"The Boring Events (Heartbeats) crowding out the Smoking Guns (Red Flags)."**
+
+Your **Slot Reservation Strategy** (Reserve 10 slots for events) is the perfect fix.
+
+### **The Final "Phase 2" Execution Plan**
+
+**1. Webcam Telemetry Hook (`hooks/useWebcamTelemetry.ts`)**
+- **Capture:** `navigator.mediaDevices.getUserMedia` -> Canvas -> Base64 JPEG.
+- **Quality:** `0.6` (Balance artifacting vs. size).
+- **Triggers:**
+  - `suspicious_return`
+  - `bulk_insert`
+  - `focus_loss`
+  - `post_return_burst_suspicious` (New high-priority trigger).
+- **Smart Budgeting Logic (The Filter):**
+  - **Hard Cap:** 30 snapshots max per session.
+  - **Heartbeat Interval:** 45 seconds.
+  - **Reservation Rule:** If `count >= 20`, **STOP** sending heartbeat snapshots. **ONLY** send event-triggered snapshots until `count == 30`.
+
+**2. Backend (`app/api/visual-snapshots/route.ts`)**
+- Standard POST endpoint to save to `visual_snapshots` collection in MongoDB.
+
+**3. Pulse Graph Integration (`components/PulseGraph.tsx`)**
+- Fetch snapshots.
+- **UI:** Overlay a **Camera Icon 📷** on bars that have a snapshot.
+- **Interaction:** Hovering the icon shows the image in a Tooltip.
+
+**4. Live Commentary (`components/LiveCommentaryFeed.tsx`)**
+- Implement the real-time sidebar feed using Ably as previously designed.
+
+**Permission UX:** Request camera on mount. If denied, show Toast warning but **do not block** the application.
+
+---
+
+## 2026-01-17 - Phase 2 Plan Review
+
+**Topic:** Gemini's evaluation of the Phase 2 implementation plan
+
+**Gemini said:**
+
+This plan is **impeccable**. It is tightly scoped, technically realistic for a demo, and addresses the specific "failure modes" we discussed (storage limits and permission friction).
+
+The **Smart Budgeting Logic** (reserving slots for events) is the "Senior Engineer" touch that ensures your demo doesn't fail right at the climax.
+
+### **The "Missing Link" Check**
+
+The plan details how to *display* the commentary (`LiveCommentaryFeed.tsx`) and how to *subscribe* to it (`useAbly.ts`).
+**However**, make sure Claude remembers to implement the **Publishing Logic**.
+
+* *Question:* Who sends the message to Ably?
+* *Answer:* The `IntegrityTracker` needs to publish a message to the `commentary` channel whenever it detects an anomaly.
+
+### **Command for Claude**
+
+> "This plan is approved. The **Smart Budgeting Logic** is excellent and will keep the demo safe.
+> **Proceed with the implementation exactly as written.**
+> **One final reminder for Step 6 & 7 (Live Commentary):**
+> Ensure you implement the **Publishing Logic** in `hooks/useKeystrokeDynamics.ts` (or `IntegrityTracker.ts`).
+> * When a 'Red Flag' event occurs (like `suspicious_return`), the client must **publish** a message to the Ably `ai_verdict` channel so the `LiveCommentaryFeed` has something to show.
+
+---

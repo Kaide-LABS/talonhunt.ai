@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Ably from 'ably';
-import type { CodeUpdateMessage, IntegrityEventMessage } from '@/types';
+import type { CodeUpdateMessage, IntegrityEventMessage, AIVerdictMessage } from '@/types';
 
 interface UseAblyOptions {
   sessionId: string;
   clientId: string;
   onCodeUpdate?: (message: CodeUpdateMessage) => void;
   onIntegrityEvent?: (message: IntegrityEventMessage) => void;
+  onAIVerdict?: (message: AIVerdictMessage) => void;  // Phase 2: Live AI commentary
 }
 
 interface UseAblyReturn {
@@ -16,6 +17,7 @@ interface UseAblyReturn {
   connected: boolean;
   publishCode: (code: string, cursorPosition?: { line: number; column: number }) => void;
   publishIntegrityEvent: (event: Omit<IntegrityEventMessage, 'timestamp'>) => void;
+  publishAIVerdict: (verdict: Omit<AIVerdictMessage, 'timestamp'>) => void;  // Phase 2: Live AI commentary
 }
 
 export function useAbly({
@@ -23,6 +25,7 @@ export function useAbly({
   clientId,
   onCodeUpdate,
   onIntegrityEvent,
+  onAIVerdict,
 }: UseAblyOptions): UseAblyReturn {
   const [channel, setChannel] = useState<Ably.RealtimeChannel | null>(null);
   const [connected, setConnected] = useState(false);
@@ -78,6 +81,15 @@ export function useAbly({
       });
     }
 
+    // Phase 2: Subscribe to AI verdict messages (Live Commentary)
+    if (onAIVerdict) {
+      ch.subscribe('ai_verdict', (message) => {
+        if (isMountedRef.current) {
+          onAIVerdict(message.data as AIVerdictMessage);
+        }
+      });
+    }
+
     // Enter presence
     ch.presence.enter({ role: 'participant' }).catch(() => {
       // Silently ignore - may fail if unmounted quickly
@@ -104,7 +116,7 @@ export function useAbly({
       setChannel(null);
       setConnected(false);
     };
-  }, [sessionId, clientId, onCodeUpdate, onIntegrityEvent]);
+  }, [sessionId, clientId, onCodeUpdate, onIntegrityEvent, onAIVerdict]);
 
   const publishCode = useCallback(
     (code: string, cursorPosition?: { line: number; column: number }) => {
@@ -140,5 +152,21 @@ export function useAbly({
     [channel, connected]
   );
 
-  return { channel, connected, publishCode, publishIntegrityEvent };
+  // Phase 2: Publish AI verdict for Live Commentary
+  const publishAIVerdict = useCallback(
+    (verdict: Omit<AIVerdictMessage, 'timestamp'>) => {
+      if (channel && connected) {
+        const message: AIVerdictMessage = {
+          ...verdict,
+          timestamp: Date.now(),
+        };
+        channel.publish('ai_verdict', message).catch(() => {
+          // Silently ignore publish errors
+        });
+      }
+    },
+    [channel, connected]
+  );
+
+  return { channel, connected, publishCode, publishIntegrityEvent, publishAIVerdict };
 }

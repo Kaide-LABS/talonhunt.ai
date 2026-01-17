@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
-import type { IntegrityEventType, IntegritySeverity } from '@/types';
+import { useMemo, useState } from 'react';
+import type { IntegrityEventType, IntegritySeverity, VisualSnapshot } from '@/types';
 
 // ============================================================================
 // Types
@@ -22,6 +22,7 @@ interface PulseGraphProps {
   sessionEnd?: number;
   onSeek?: (timestamp: number) => void;          // Click to seek (replay mode)
   currentTimestamp?: number | null;              // Current playback position (replay mode)
+  visualSnapshots?: VisualSnapshot[];            // Phase 2: Webcam snapshots for camera icon hover
 }
 
 interface Bucket {
@@ -30,6 +31,7 @@ interface Bucket {
   volume: number;  // Total activity (keystrokes + paste chars)
   maxSeverity: IntegritySeverity;
   events: StoredEvent[];
+  snapshots: VisualSnapshot[];  // Phase 2: Visual snapshots in this bucket
 }
 
 // ============================================================================
@@ -102,7 +104,8 @@ function formatDuration(ms: number): string {
 function calculateBuckets(
   events: StoredEvent[],
   sessionStart: number,
-  sessionEnd: number
+  sessionEnd: number,
+  visualSnapshots: VisualSnapshot[] = []
 ): Bucket[] {
   const duration = sessionEnd - sessionStart;
   const bucketCount = Math.ceil(duration / BUCKET_DURATION_MS);
@@ -116,6 +119,7 @@ function calculateBuckets(
       volume: 0,
       maxSeverity: 'info',
       events: [],
+      snapshots: [],
     });
   }
 
@@ -149,6 +153,14 @@ function calculateBuckets(
     }
   }
 
+  // Phase 2: Assign visual snapshots to buckets
+  for (const snapshot of visualSnapshots) {
+    const bucketIndex = Math.floor((snapshot.timestamp - sessionStart) / BUCKET_DURATION_MS);
+    if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+      buckets[bucketIndex].snapshots.push(snapshot);
+    }
+  }
+
   return buckets;
 }
 
@@ -156,7 +168,10 @@ function calculateBuckets(
 // Component
 // ============================================================================
 
-export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTimestamp }: PulseGraphProps) {
+export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTimestamp, visualSnapshots = [] }: PulseGraphProps) {
+  // Phase 2: Hover state for snapshot preview
+  const [hoveredSnapshot, setHoveredSnapshot] = useState<{ snapshot: VisualSnapshot; x: number; y: number } | null>(null);
+
   // Calculate effective session bounds
   const effectiveStart = useMemo(() => {
     if (events.length === 0) return sessionStart;
@@ -172,8 +187,8 @@ export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTi
 
   // Calculate buckets
   const buckets = useMemo(() => {
-    return calculateBuckets(events, effectiveStart, effectiveEnd);
-  }, [events, effectiveStart, effectiveEnd]);
+    return calculateBuckets(events, effectiveStart, effectiveEnd, visualSnapshots);
+  }, [events, effectiveStart, effectiveEnd, visualSnapshots]);
 
   // Find max volume for scaling
   const maxVolume = useMemo(() => {
@@ -329,6 +344,39 @@ export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTi
                     className="animate-pulse"
                   />
                 )}
+                {/* Phase 2: Camera icon for buckets with visual snapshots */}
+                {bucket.snapshots.length > 0 && (
+                  <g
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setHoveredSnapshot({
+                        snapshot: bucket.snapshots[0],
+                        x: rect.left + rect.width / 2,
+                        y: rect.top,
+                      });
+                    }}
+                    onMouseLeave={() => setHoveredSnapshot(null)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <circle
+                      cx={index * (4 + BAR_GAP) + 2}
+                      cy={4}
+                      r={3}
+                      fill="#3b82f6"
+                      stroke="#1e3a8a"
+                      strokeWidth="0.5"
+                    />
+                    <text
+                      x={index * (4 + BAR_GAP) + 2}
+                      y={5.5}
+                      textAnchor="middle"
+                      fontSize="4"
+                      fill="white"
+                    >
+                      📷
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -368,7 +416,33 @@ export function PulseGraph({ events, sessionStart, sessionEnd, onSeek, currentTi
         <span>
           Warnings: {events.filter(e => getEventSeverity(e.type) === 'warning').length}
         </span>
+        {visualSnapshots.length > 0 && (
+          <span className="text-blue-400">
+            📷 {visualSnapshots.length} snapshots
+          </span>
+        )}
       </div>
+
+      {/* Phase 2: Snapshot hover preview tooltip */}
+      {hoveredSnapshot && (
+        <div
+          className="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-2"
+          style={{
+            left: Math.max(10, Math.min(hoveredSnapshot.x - 100, window.innerWidth - 220)),
+            top: hoveredSnapshot.y + 20,
+          }}
+        >
+          <img
+            src={hoveredSnapshot.snapshot.imageData}
+            alt="Webcam snapshot"
+            className="w-48 h-36 object-cover rounded"
+          />
+          <div className="mt-1 text-xs text-gray-400 text-center">
+            {new Date(hoveredSnapshot.snapshot.timestamp).toLocaleTimeString()} |{' '}
+            <span className="text-blue-400">{hoveredSnapshot.snapshot.trigger}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

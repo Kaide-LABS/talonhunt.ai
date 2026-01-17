@@ -57,7 +57,7 @@ export function CodeEditor({
     }
   }, [isReadOnly]);
 
-  const { connected, publishCode, publishIntegrityEvent } = useAbly({
+  const { connected, publishCode, publishIntegrityEvent, publishAIVerdict } = useAbly({
     sessionId,
     clientId,
     onCodeUpdate: handleCodeUpdate,
@@ -72,6 +72,7 @@ export function CodeEditor({
     editor,
     enabled: !isReadOnly,
     publishIntegrityEvent,
+    publishAIVerdict,  // Phase 2: Live Commentary
     onBulkInsert: () => {
       // Trigger immediate snapshot on bulk insert detection
       if (saveReplaySnapshotRef.current) {

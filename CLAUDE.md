@@ -35,37 +35,50 @@ GEMINI_API_KEY=...
 
 ## Session Handoff Notes
 
-**Last updated**: 2026-01-16
-**Status**: Challenge selector implemented and tested
+**Last updated**: 2026-01-17
+**Status**: Phase 1 complete, Phase 2 (Webcam + Live Commentary) pending
 
-**Completed (this session)**:
-- Added challenge selector to candidate UI (commit `12c2adb`)
-- Created `data/challenges.ts` with 3 Python challenges:
-  - FizzBuzz (easy) - for honest typing demos
-  - Two Sum (medium) - classic interview problem
-  - Dijkstra's Algorithm (hard) - cheating trap for AI-assisted detection
-- Added `challenge_selected` event type (neutral, 0 score impact)
-- Added dropdown UI to candidate page header:
-  - LeetCode-style dark theme
-  - Difficulty color coding (green/yellow/red)
-  - Challenges filtered by session language
-- Editor resets to starter code via React key prop remount
+**Completed (this session - Phase 1)**:
+- Post-Return Burst Analysis (commit `38bdd20`)
+  - Detects "memory dump" pattern: fast + consistent typing after tab return
+  - Tracks first 5 keystrokes, flags mean < 80ms + stdDev < 25ms
+  - `post_return_burst_suspicious` event (-8 score)
+- Undo Ratio Tracking
+  - Counts backspace/delete vs total keystrokes
+  - Flags <5% ratio as suspicious (honest coders ~10-30%)
+  - `low_undo_ratio` event (-5 score)
+- Confidence Score (0-100%)
+  - Visual progress bar in review dashboard
+  - Replaces vague High/Medium/Low with precise percentage
+- AI-Annotated Replay
+  - Activity classification: thinking, coding, debugging, suspicious_paste, idle
+  - Annotation markers on replay timeline (emoji icons)
+  - Auto-interrogation modal for suspicious events
 
 **New Files**:
-- `data/challenges.ts` - Challenge definitions with starter code
+- `app/api/replay-snapshots/route.ts` - Snapshot storage with activity classification
+- `app/api/interrogate/route.ts` - Auto-interrogation endpoint
+- `components/replay/ReplayControls.tsx` - Replay timeline UI
+- `components/InterrogationModal.tsx` - Candidate explanation capture
+- `netlify/functions/replay-snapshots.ts` - Netlify function mirror
 
 **Modified Files**:
-- `types/index.ts` - Added challenge_selected event type
-- `app/api/events/route.ts` + `netlify/functions/events.ts` - Added score impact
-- `app/candidate/[sessionId]/page.tsx` - Challenge dropdown UI
+- `lib/IntegrityTracker.ts` - Post-return burst + undo ratio detection
+- `types/index.ts` - New event types, ActivityAnnotation type
+- `app/api/events/route.ts` + `netlify/functions/events.ts` - Score impacts
+- `app/api/analyze/route.ts` - confidenceScore in Gemini prompt
+- `app/review/[sessionId]/page.tsx` - Confidence bar, replay integration
+- `hooks/useKeystrokeDynamics.ts` - Event severity + triggers
 
-**Technical Notes**:
-- Currently only Python challenges (filter by session language)
-- challenge_selected events logged with challengeId, title, difficulty
-- No score impact - informational metadata only
+**Technical Decisions**:
+- Dropped screen recording (permission friction, code replay already exists)
+- Using "Smart Snapshots" approach for Phase 2 (per Gemini recommendation)
 
-**Next**:
-- Session Replay feature
-- Add JavaScript/TypeScript challenges
-- Post-Return Burst Analysis (first 5 keystrokes pattern)
-- Video proctoring integration
+**Next (Phase 2 - User Approved)**:
+- Webcam Telemetry: `hooks/useWebcamTelemetry.ts`
+  - 30-second interval + event-triggered captures
+  - `/api/visual-snapshots` endpoint (Base64 MongoDB storage)
+  - Cap at 30 snapshots per session
+- PulseGraph camera icon hover preview
+- Live Commentary Feed: `components/LiveCommentaryFeed.tsx`
+  - Ably-powered real-time AI verdicts

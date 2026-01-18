@@ -374,6 +374,12 @@ export default function ReviewPage() {
   const [visualSnapshots, setVisualSnapshots] = useState<VisualSnapshot[]>([]);
   const [aiVerdicts, setAIVerdicts] = useState<AIVerdictMessage[]>([]);
 
+  // Collapsible panel states
+  const [pulseGraphCollapsed, setPulseGraphCollapsed] = useState(false);
+  const [analysisCollapsed, setAnalysisCollapsed] = useState(false);
+  const [commentaryCollapsed, setCommentaryCollapsed] = useState(false);
+  const [eventsCollapsed, setEventsCollapsed] = useState(false);
+
   // AI Analysis panel resizing state
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(160);
   const [isResizing, setIsResizing] = useState(false);
@@ -712,20 +718,55 @@ export default function ReviewPage() {
         />
       )}
 
-      {/* Pulse Graph - Activity visualization over time */}
-      <PulseGraph
-        events={displayEvents}
-        sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
-        onSeek={replayMode ? handleSeekToTimestamp : undefined}
-        currentTimestamp={currentReplayTimestamp}
-        visualSnapshots={visualSnapshots}
-      />
+      {/* Pulse Graph - Activity visualization over time (Collapsible) */}
+      <div className="border-b border-gray-700">
+        <button
+          onClick={() => setPulseGraphCollapsed(!pulseGraphCollapsed)}
+          className="w-full px-4 py-2 flex items-center justify-between bg-gray-800/50 hover:bg-gray-800 transition-colors"
+        >
+          <span className="text-sm font-medium flex items-center gap-2">
+            📊 Pulse Graph
+            {pulseGraphCollapsed && <span className="text-xs text-gray-500">({displayEvents.length} events)</span>}
+          </span>
+          <span className="text-gray-400">{pulseGraphCollapsed ? '▶' : '▼'}</span>
+        </button>
+        {!pulseGraphCollapsed && (
+          <PulseGraph
+            events={displayEvents}
+            sessionStart={session.createdAt ? new Date(session.createdAt).getTime() : Date.now() - 300000}
+            onSeek={replayMode ? handleSeekToTimestamp : undefined}
+            currentTimestamp={currentReplayTimestamp}
+            visualSnapshots={visualSnapshots}
+          />
+        )}
+      </div>
 
-      {/* AI Forensic Analysis Section - Resizable */}
-      <div
-        className="bg-gray-800 border-b border-gray-700 relative flex flex-col"
-        style={{ height: analysisPanelHeight, minHeight: 80, maxHeight: 400 }}
-      >
+      {/* AI Forensic Analysis Section - Collapsible & Resizable */}
+      <div className="bg-gray-800 border-b border-gray-700">
+        <button
+          onClick={() => setAnalysisCollapsed(!analysisCollapsed)}
+          className="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-700/50 transition-colors"
+        >
+          <span className="text-sm font-medium flex items-center gap-2">
+            ✨ AI Forensic Analysis
+            <span className="text-xs text-gray-500">(Gemini 2.0 Flash)</span>
+            {analysisCollapsed && analysis && (
+              <span className={`text-xs px-2 py-0.5 rounded ${
+                analysis.verdict === 'High Risk' ? 'bg-red-900 text-red-200' :
+                analysis.verdict === 'Medium Risk' ? 'bg-yellow-900 text-yellow-200' :
+                'bg-green-900 text-green-200'
+              }`}>
+                {analysis.verdict} - {analysis.confidenceScore}%
+              </span>
+            )}
+          </span>
+          <span className="text-gray-400">{analysisCollapsed ? '▶' : '▼'}</span>
+        </button>
+        {!analysisCollapsed && (
+          <div
+            className="relative flex flex-col"
+            style={{ height: analysisPanelHeight, minHeight: 80, maxHeight: 400 }}
+          >
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -830,6 +871,8 @@ export default function ReviewPage() {
             isResizing ? 'bg-purple-500' : ''
           }`} />
         </div>
+          </div>
+        )}
       </div>
 
       {/* Main Content: 70% Editor, 30% Timeline */}
@@ -845,39 +888,56 @@ export default function ReviewPage() {
           />
         </div>
 
-        {/* Event Timeline - 30% */}
-        <div className="w-[30%] h-full flex flex-col bg-gray-900">
-          {/* Phase 2: Live Commentary Feed (for active sessions) */}
+        {/* Right Panel - 30% */}
+        <div className="w-[30%] h-full flex flex-col bg-gray-900 overflow-hidden">
+          {/* Live Commentary Feed (Collapsible) - for active sessions */}
           {session.status === 'active' && (
-            <div className="p-3 border-b border-gray-700">
-              <LiveCommentaryFeed verdicts={aiVerdicts} />
-              {ablyConnected && (
-                <p className="text-xs text-green-500 mt-1 text-center">
-                  Connected to live feed
-                </p>
+            <div className="border-b border-gray-700">
+              <button
+                onClick={() => setCommentaryCollapsed(!commentaryCollapsed)}
+                className="w-full px-3 py-2 flex items-center justify-between bg-gray-800/50 hover:bg-gray-800 transition-colors"
+              >
+                <span className="text-sm font-medium flex items-center gap-2">
+                  🎙️ Live Commentary
+                  {commentaryCollapsed && aiVerdicts.length > 0 && (
+                    <span className="text-xs text-gray-500">({aiVerdicts.length} verdicts)</span>
+                  )}
+                  {ablyConnected && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />}
+                </span>
+                <span className="text-gray-400">{commentaryCollapsed ? '▶' : '▼'}</span>
+              </button>
+              {!commentaryCollapsed && (
+                <div className="p-3 max-h-48 overflow-y-auto">
+                  <LiveCommentaryFeed verdicts={aiVerdicts} />
+                </div>
               )}
             </div>
           )}
 
-          <div className="px-4 py-3 border-b border-gray-700 bg-gray-800/50">
-            <h2 className="font-semibold">Event Timeline</h2>
-            <p className="text-xs text-gray-400">
-              {replayMode ? (
-                <span>
-                  {sortedEvents.length} of {events.length} events visible at this point
+          {/* Event Timeline (Collapsible) */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <button
+              onClick={() => setEventsCollapsed(!eventsCollapsed)}
+              className="w-full px-4 py-2 flex items-center justify-between bg-gray-800/50 hover:bg-gray-800 transition-colors border-b border-gray-700"
+            >
+              <span className="text-sm font-medium flex items-center gap-2">
+                📋 Event Timeline
+                <span className="text-xs text-gray-500">
+                  {replayMode ? `${sortedEvents.length}/${events.length}` : `${events.length}`}
                 </span>
-              ) : (
-                <span>{events.length} events captured</span>
-              )}
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3">
-            {sortedEvents.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No events yet</p>
-            ) : (
-              sortedEvents.map((event) => (
-                <EventCard key={event._id || event.timestamp} event={event} />
-              ))
+              </span>
+              <span className="text-gray-400">{eventsCollapsed ? '▶' : '▼'}</span>
+            </button>
+            {!eventsCollapsed && (
+              <div className="flex-1 overflow-y-auto p-3">
+                {sortedEvents.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No events yet</p>
+                ) : (
+                  sortedEvents.map((event) => (
+                    <EventCard key={event._id || event.timestamp} event={event} />
+                  ))
+                )}
+              </div>
             )}
           </div>
         </div>

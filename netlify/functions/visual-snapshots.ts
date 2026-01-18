@@ -2,7 +2,7 @@ import type { Handler } from '@netlify/functions';
 import { getDb } from '../../lib/mongodb';
 import type { VisualSnapshot, VisualSnapshotTrigger } from '../../types';
 
-const MAX_SNAPSHOTS_PER_SESSION = 30;
+const MAX_SNAPSHOTS_PER_SESSION = 100;
 
 const handler: Handler = async (event) => {
   const db = await getDb();

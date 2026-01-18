@@ -5,7 +5,7 @@ import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { useAbly } from '@/hooks/useAbly';
 import { useKeystrokeDynamics } from '@/hooks/useKeystrokeDynamics';
-import type { CodeUpdateMessage, ReplaySnapshotTrigger } from '@/types';
+import type { CodeUpdateMessage, ReplaySnapshotTrigger, BaselineMetrics } from '@/types';
 
 // Replay snapshot interval (30 seconds)
 const SNAPSHOT_INTERVAL_MS = 30000;
@@ -17,6 +17,7 @@ interface Props {
   initialCode?: string;
   onSuspiciousInsert?: (triggerType: 'bulk_insert' | 'suspicious_return', insertedCode: string | null) => void;  // Day 5: Auto-interrogation
   onCodeChange?: (code: string) => void;  // Day 5: Callback to report current code
+  onMetricsUpdate?: (metrics: BaselineMetrics) => void;  // Phase 3: 1Hz metrics callback
 }
 
 export function CodeEditor({
@@ -26,6 +27,7 @@ export function CodeEditor({
   initialCode = '// Start coding here...\n',
   onSuspiciousInsert,
   onCodeChange,
+  onMetricsUpdate,
 }: Props) {
   const [code, setCode] = useState(initialCode);
   const [clientId] = useState(() => `user-${Math.random().toString(36).slice(2, 11)}`);
@@ -81,6 +83,7 @@ export function CodeEditor({
       }
     },
     onSuspiciousInsert,  // Day 5: Pass through for auto-interrogation
+    onMetricsUpdate,  // Phase 3: 1Hz metrics for LiveCommentaryFeed
   });
 
   // Save code to DB (for candidate only) - persists code for late-joining reviewers

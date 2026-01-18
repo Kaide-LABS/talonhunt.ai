@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { VisualSnapshot } from '@/types';
 
 // Initialize Gemini with gemini-1.5-flash (fast for demos)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');

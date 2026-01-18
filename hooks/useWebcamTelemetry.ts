@@ -20,9 +20,9 @@ interface UseWebcamTelemetryReturn {
   isCapped: boolean;
 }
 
-const DEFAULT_MAX_SNAPSHOTS = 30;
-const DEFAULT_RESERVED_SLOTS = 10;
-const DEFAULT_INTERVAL_MS = 45000; // 45 seconds
+const DEFAULT_MAX_SNAPSHOTS = 100;
+const DEFAULT_RESERVED_SLOTS = 20; // Reserve more for events with higher max
+const DEFAULT_INTERVAL_MS = 15000; // 15 seconds
 
 /**
  * Smart Budgeting Logic:
@@ -67,25 +67,38 @@ export function useWebcamTelemetry({
 
   const isCapped = snapshotCount >= maxSnapshots;
 
+  // Use refs for values that change frequently to avoid dependency loops
+  const snapshotCountRef = useRef(snapshotCount);
+  const isCapturingRef = useRef(isCapturing);
+
+  useEffect(() => {
+    snapshotCountRef.current = snapshotCount;
+  }, [snapshotCount]);
+
+  useEffect(() => {
+    isCapturingRef.current = isCapturing;
+  }, [isCapturing]);
+
   // Capture snapshot and send to API
+  // Uses refs to avoid recreating this function when count changes (which would cause effect re-runs)
   const captureSnapshot = useCallback(async (trigger: VisualSnapshotTrigger) => {
     if (!videoRef.current || !canvasRef.current || !hasPermission) {
       console.log('[Webcam] Cannot capture: no video or permission');
       return;
     }
 
-    // Check smart budgeting
-    if (!shouldCapture(trigger, snapshotCount, maxSnapshots, reservedSlots)) {
+    // Check smart budgeting using ref for current count
+    if (!shouldCapture(trigger, snapshotCountRef.current, maxSnapshots, reservedSlots)) {
       console.log('[Webcam] Skipping capture due to smart budgeting:', {
         trigger,
-        count: snapshotCount,
+        count: snapshotCountRef.current,
         maxSnapshots,
         reservedSlots,
       });
       return;
     }
 
-    if (isCapturing) {
+    if (isCapturingRef.current) {
       console.log('[Webcam] Already capturing, skipping');
       return;
     }
@@ -112,7 +125,7 @@ export function useWebcamTelemetry({
 
       console.log('[Webcam] Capturing snapshot:', {
         trigger,
-        count: snapshotCount + 1,
+        count: snapshotCountRef.current + 1,
         imageSize: Math.round(imageData.length / 1024) + 'KB',
       });
 
@@ -143,7 +156,7 @@ export function useWebcamTelemetry({
         setIsCapturing(false);
       }
     }
-  }, [sessionId, hasPermission, snapshotCount, maxSnapshots, reservedSlots, isCapturing]);
+  }, [sessionId, hasPermission, maxSnapshots, reservedSlots]); // Removed snapshotCount and isCapturing - using refs instead
 
   // Request camera permission and set up stream
   useEffect(() => {

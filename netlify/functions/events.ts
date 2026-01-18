@@ -10,6 +10,7 @@ import type { IntegrityEventBatch, TelemetryEvent, IntegrityEventType } from '..
 //
 // Day 4: Added oscillation detection and return signature analysis
 // Day 5: Added post-return burst analysis and undo ratio
+// Phase 3: Added adaptive AI commentary events
 // research_break is a POSITIVE signal - rewards legitimate doc reading
 const SCORE_IMPACT: Record<IntegrityEventType, number> = {
   paste: -2,
@@ -27,6 +28,9 @@ const SCORE_IMPACT: Record<IntegrityEventType, number> = {
   interrogation_completed: 0,         // Day 5: Auto-interrogation answered (neutral - recruiter judges)
   post_return_burst_suspicious: -8,   // Day 5: Memory dump typing pattern (not definitive)
   low_undo_ratio: -5,                 // Day 5: Suspiciously clean typing (warning signal)
+  adaptive_consistency: +2,           // Phase 3: Positive signal - stable within baseline
+  adaptive_anomaly: -3,               // Phase 3: Warning - significant deviation from baseline
+  adaptive_heartbeat: 0,              // Phase 3: Neutral - just a check-in
 };
 
 const handler: Handler = async (event) => {

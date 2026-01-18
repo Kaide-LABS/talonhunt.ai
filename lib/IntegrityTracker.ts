@@ -3,7 +3,7 @@
 // Day 3: Added LinearityIndex, enhanced RhythmVariance, bulk_insert detection
 // Day 4: Added Oscillation detection, Return Signature analysis
 
-import type { IntegrityEventType, TelemetryEvent } from '@/types';
+import type { IntegrityEventType, TelemetryEvent, BaselineMetrics } from '@/types';
 
 // ============================================================================
 // TUNABLE THRESHOLDS - Adjust these to calibrate detection sensitivity
@@ -90,6 +90,16 @@ export class IntegrityTracker {
   private totalTypingKeystrokes = 0;
   private lastUndoRatioCheck = 0;
 
+  // Phase 3: Adaptive AI Commentary - Baseline tracking
+  // Establishes per-candidate baseline for event-driven AI analysis
+  private sessionStartTime = 0;                    // When first keystroke occurred
+  private charactersTypedTotal = 0;               // Total characters typed
+  private rollingLatencies: number[] = [];        // Last 60 seconds of latencies
+  private rollingLatenciesTimes: number[] = [];   // Timestamps for rolling window
+  private baselineWPM: number | null = null;      // Locked after 60s
+  private baselineBackspaceRatio: number | null = null;  // Locked after 60s
+  private baselineEstablished = false;            // True after conditions met
+
   constructor(
     private sessionId: string,
     private onAnomaly: (event: TelemetryEvent) => void
@@ -140,6 +150,7 @@ export class IntegrityTracker {
     // Ignore first key of session (no previous time to compare)
     if (this.lastKeyTime === 0) {
       this.lastKeyTime = now;
+      this.sessionStartTime = now; // Phase 3: Track session start
       this.currentBurstStartTime = now; // Start first burst
       this.currentBurstLength = 1;
       return;
@@ -147,6 +158,15 @@ export class IntegrityTracker {
 
     const latency = now - this.lastKeyTime;
     this.lastKeyTime = now;
+
+    // Phase 3: Track rolling 60-second window of latencies
+    this.rollingLatencies.push(latency);
+    this.rollingLatenciesTimes.push(now);
+    this.charactersTypedTotal++;
+    this.pruneRollingWindow(now);
+
+    // Phase 3: Check if baseline should be established
+    this.checkBaselineEstablishment(now);
 
     // Day 5: Post-Return Burst Analysis - Collect first 5 keystrokes after return
     if (this.collectingPostReturnBurst) {
@@ -671,6 +691,84 @@ export class IntegrityTracker {
       mean: this.mean,
       variance: this.getVariance(),
       count: this.count,
+    };
+  }
+
+  /**
+   * Phase 3: Prune rolling window to keep only last 60 seconds
+   */
+  private pruneRollingWindow(now: number): void {
+    const cutoff = now - 60000; // 60 seconds
+    while (this.rollingLatenciesTimes.length > 0 && this.rollingLatenciesTimes[0] < cutoff) {
+      this.rollingLatencies.shift();
+      this.rollingLatenciesTimes.shift();
+    }
+  }
+
+  /**
+   * Phase 3: Check if baseline conditions are met and lock baseline
+   * Conditions: sessionDuration >= 60s AND charactersTyped >= 100
+   */
+  private checkBaselineEstablishment(now: number): void {
+    if (this.baselineEstablished) return;
+
+    const sessionDuration = now - this.sessionStartTime;
+    if (sessionDuration >= 60000 && this.charactersTypedTotal >= 100) {
+      // Lock in baseline values
+      this.baselineWPM = this.calculateCurrentWPM(now);
+      this.baselineBackspaceRatio = this.calculateCurrentBackspaceRatio();
+      this.baselineEstablished = true;
+      console.log('[IntegrityTracker] Baseline established:', {
+        wpm: this.baselineWPM,
+        backspaceRatio: this.baselineBackspaceRatio,
+      });
+    }
+  }
+
+  /**
+   * Phase 3: Calculate current WPM from rolling window
+   * WPM = (characters in window / window duration) * 60000 / 5 (avg chars per word)
+   */
+  private calculateCurrentWPM(now: number): number {
+    if (this.rollingLatencies.length < 5) return 0;
+
+    // Characters in window = number of latencies (each keystroke = 1 char approximately)
+    const charsInWindow = this.rollingLatencies.length;
+
+    // Window duration = time from oldest to now
+    const oldestTime = this.rollingLatenciesTimes[0];
+    const windowDurationMs = now - oldestTime;
+
+    if (windowDurationMs <= 0) return 0;
+
+    // WPM = (chars/ms) * 60000ms/min / 5 chars/word
+    return (charsInWindow / windowDurationMs) * 60000 / 5;
+  }
+
+  /**
+   * Phase 3: Calculate current backspace ratio from total counts
+   */
+  private calculateCurrentBackspaceRatio(): number {
+    const totalDeletions = this.backspaceCount + this.deleteCount;
+    const totalActions = this.totalTypingKeystrokes + totalDeletions;
+    if (totalActions === 0) return 0;
+    return totalDeletions / totalActions;
+  }
+
+  /**
+   * Phase 3: Get baseline metrics for adaptive AI commentary
+   * Returns current and baseline WPM/backspace ratio
+   */
+  public getBaselineMetrics(): BaselineMetrics {
+    const now = Date.now();
+    return {
+      baselineWPM: this.baselineWPM,
+      baselineBackspaceRatio: this.baselineBackspaceRatio,
+      currentWPM: this.calculateCurrentWPM(now),
+      currentBackspaceRatio: this.calculateCurrentBackspaceRatio(),
+      baselineEstablished: this.baselineEstablished,
+      sessionDurationMs: this.sessionStartTime > 0 ? now - this.sessionStartTime : 0,
+      charactersTyped: this.charactersTypedTotal,
     };
   }
 

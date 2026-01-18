@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { IntegrityTracker } from '@/lib/IntegrityTracker';
-import type { TelemetryEvent, IntegrityEventMessage, IntegritySeverity, AIVerdictMessage, AIVerdictType, IntegrityEventType } from '@/types';
+import type { TelemetryEvent, IntegrityEventMessage, IntegritySeverity, AIVerdictMessage, AIVerdictType, IntegrityEventType, BaselineMetrics, AdaptiveTriggerType, LiveCommentaryRequest } from '@/types';
 
 interface UseKeystrokeDynamicsOptions {
   sessionId: string;
@@ -13,11 +13,22 @@ interface UseKeystrokeDynamicsOptions {
   publishAIVerdict?: (verdict: Omit<AIVerdictMessage, 'timestamp'>) => void;  // Phase 2: Live Commentary
   onBulkInsert?: () => void;  // Day 5: Callback for bulk insert detection (triggers replay snapshot)
   onSuspiciousInsert?: (triggerType: 'bulk_insert' | 'suspicious_return', insertedCode: string | null) => void;  // Day 5: Auto-interrogation trigger
+  onMetricsUpdate?: (metrics: BaselineMetrics) => void;  // Phase 3: 1Hz metrics callback
 }
 
 interface UseKeystrokeDynamicsReturn {
   isTracking: boolean;
+  getTracker: () => IntegrityTracker | null;  // Phase 3: Direct tracker access
 }
+
+// Phase 3: Adaptive AI trigger configuration
+const ADAPTIVE_CONFIG = {
+  CONSISTENCY_WINDOW_MS: 30000,    // 30 seconds of stable stats
+  ANOMALY_THRESHOLD: 0.5,          // 50% deviation from baseline
+  HEARTBEAT_INTERVAL_MS: 45000,    // 45-second fallback
+  RATE_LIMIT_MS: 15000,            // Max 1 API call per 15s
+  BASELINE_TOLERANCE: 0.2,         // ±20% within baseline for "consistent"
+};
 
 // Phase 2: Map severity to AI verdict type for Live Commentary
 function severityToVerdict(severity: IntegritySeverity): AIVerdictType {
@@ -99,11 +110,19 @@ export function useKeystrokeDynamics({
   publishAIVerdict,
   onBulkInsert,
   onSuspiciousInsert,
+  onMetricsUpdate,
 }: UseKeystrokeDynamicsOptions): UseKeystrokeDynamicsReturn {
   const trackerRef = useRef<IntegrityTracker | null>(null);
   const isMountedRef = useRef(true);
   const flushIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastInsertedCodeRef = useRef<string | null>(null);  // Day 5: Track last inserted code for interrogation
+
+  // Phase 3: Adaptive AI trigger state
+  const lastAICallRef = useRef<number>(0);              // Last API call timestamp
+  const lastConsistencyCheckRef = useRef<number>(0);   // When consistency window started
+  const recentEventsRef = useRef<Array<{ type: IntegrityEventType; timestamp: number }>>([]);
+  const adaptiveHeartbeatRef = useRef<NodeJS.Timeout | null>(null);
+  const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use ref to hold publishIntegrityEvent to avoid recreating callbacks
   const publishRef = useRef(publishIntegrityEvent);
@@ -121,11 +140,127 @@ export function useKeystrokeDynamics({
   const onSuspiciousInsertRef = useRef(onSuspiciousInsert);
   onSuspiciousInsertRef.current = onSuspiciousInsert;
 
+  // Phase 3: Use ref for onMetricsUpdate callback
+  const onMetricsUpdateRef = useRef(onMetricsUpdate);
+  onMetricsUpdateRef.current = onMetricsUpdate;
+
+  // Phase 3: Call live-commentary API with adaptive trigger
+  const callLiveCommentaryAPI = useCallback(async (
+    triggerType: AdaptiveTriggerType,
+    metrics: BaselineMetrics
+  ) => {
+    const now = Date.now();
+
+    // Rate limit: max 1 call per 15 seconds
+    if (now - lastAICallRef.current < ADAPTIVE_CONFIG.RATE_LIMIT_MS) {
+      console.log('[Adaptive] Rate limited, skipping API call');
+      return;
+    }
+
+    lastAICallRef.current = now;
+
+    const request: LiveCommentaryRequest = {
+      sessionId,
+      baselineWPM: metrics.baselineWPM,
+      currentWPM: metrics.currentWPM,
+      baselineBackspaceRatio: metrics.baselineBackspaceRatio,
+      currentBackspaceRatio: metrics.currentBackspaceRatio,
+      eventType: triggerType,
+      recentEvents: recentEventsRef.current.slice(-10), // Last 10 events
+    };
+
+    console.log('[Adaptive] Calling live-commentary API:', triggerType);
+
+    try {
+      const response = await fetch('/api/live-commentary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[Adaptive] API response:', data);
+
+        // Publish AI verdict to Ably with metrics
+        if (publishVerdictRef.current && data.verdict && data.summary) {
+          publishVerdictRef.current({
+            verdict: data.verdict,
+            eventType: `adaptive_${triggerType}` as AIVerdictMessage['eventType'],
+            summary: data.summary,
+            confidence: data.confidence || 70,
+            metrics,  // Phase 3: Include metrics for reviewer display
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[Adaptive] API call failed:', error);
+    }
+  }, [sessionId]);
+
+  // Phase 3: Check for anomaly condition (WPM spike/drop)
+  const checkAnomaly = useCallback((metrics: BaselineMetrics): boolean => {
+    if (!metrics.baselineEstablished || metrics.baselineWPM === null) return false;
+    if (metrics.baselineWPM === 0) return false;
+
+    const wpmDeviation = Math.abs(metrics.currentWPM - metrics.baselineWPM) / metrics.baselineWPM;
+
+    // Anomaly: WPM spikes >50% above baseline OR drops to near 0
+    if (wpmDeviation > ADAPTIVE_CONFIG.ANOMALY_THRESHOLD) {
+      console.log('[Adaptive] Anomaly detected:', { wpmDeviation, current: metrics.currentWPM, baseline: metrics.baselineWPM });
+      return true;
+    }
+
+    // Near-zero WPM after baseline established = suspicious pause
+    if (metrics.currentWPM < 5 && metrics.baselineWPM > 20) {
+      console.log('[Adaptive] Near-zero WPM detected');
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  // Phase 3: Check for consistency condition (30s stable)
+  const checkConsistency = useCallback((metrics: BaselineMetrics): boolean => {
+    if (!metrics.baselineEstablished || metrics.baselineWPM === null) return false;
+    if (metrics.baselineWPM === 0) return false;
+
+    const wpmDeviation = Math.abs(metrics.currentWPM - metrics.baselineWPM) / metrics.baselineWPM;
+    const now = Date.now();
+
+    // Within ±20% of baseline
+    if (wpmDeviation <= ADAPTIVE_CONFIG.BASELINE_TOLERANCE) {
+      // Start consistency window if not started
+      if (lastConsistencyCheckRef.current === 0) {
+        lastConsistencyCheckRef.current = now;
+      }
+
+      // 30 seconds of stable stats
+      if (now - lastConsistencyCheckRef.current >= ADAPTIVE_CONFIG.CONSISTENCY_WINDOW_MS) {
+        console.log('[Adaptive] Consistency window complete');
+        lastConsistencyCheckRef.current = now; // Reset window
+        return true;
+      }
+    } else {
+      // Reset consistency window if deviated
+      lastConsistencyCheckRef.current = 0;
+    }
+
+    return false;
+  }, []);
+
   // Handle anomaly detection - publish to Ably for real-time alerts
   const handleAnomaly = useCallback(
     (event: TelemetryEvent) => {
       const severity = getSeverity(event);
       console.log('[IntegrityTracker] Anomaly detected:', event.type, event.data);
+
+      // Phase 3: Track recent events for adaptive AI
+      recentEventsRef.current.push({ type: event.type, timestamp: Date.now() });
+      // Keep only last 20 events
+      if (recentEventsRef.current.length > 20) {
+        recentEventsRef.current.shift();
+      }
 
       if (publishRef.current) {
         publishRef.current({
@@ -141,13 +276,25 @@ export function useKeystrokeDynamics({
         const verdict = severityToVerdict(severity);
         const summary = generateVerdictSummary(event.type);
 
+        // Phase 3: Include metrics if available
+        const currentMetrics = trackerRef.current?.getBaselineMetrics();
+
         console.log('[IntegrityTracker] Publishing AI verdict:', verdict, summary);
         publishVerdictRef.current({
           verdict,
           eventType: event.type,
           summary,
           confidence: severity === 'critical' ? 85 : 65,
+          metrics: currentMetrics,  // Phase 3: Include metrics for reviewer display
         });
+      }
+
+      // Phase 3: Trigger anomaly API call for significant events
+      if ((severity === 'warning' || severity === 'critical') && trackerRef.current) {
+        const metrics = trackerRef.current.getBaselineMetrics();
+        if (metrics.baselineEstablished) {
+          callLiveCommentaryAPI('anomaly', metrics);
+        }
       }
 
       // Day 5: Trigger replay snapshot on bulk insert detection
@@ -162,7 +309,7 @@ export function useKeystrokeDynamics({
         onSuspiciousInsertRef.current(event.type, lastInsertedCodeRef.current);
       }
     },
-    [] // No dependencies - uses ref
+    [callLiveCommentaryAPI] // Added dependency
   );
 
   // Use ref to hold sessionId to avoid recreating callbacks
@@ -203,6 +350,45 @@ export function useKeystrokeDynamics({
     // Flush events every 5 seconds
     flushIntervalRef.current = setInterval(flushEvents, 5000);
 
+    // Phase 3: 1Hz metrics updates + trigger checks
+    metricsIntervalRef.current = setInterval(() => {
+      if (!trackerRef.current || !isMountedRef.current) return;
+
+      const metrics = trackerRef.current.getBaselineMetrics();
+
+      // Report metrics to parent for UI display
+      if (onMetricsUpdateRef.current) {
+        onMetricsUpdateRef.current(metrics);
+      }
+
+      // Only check triggers if baseline is established
+      if (metrics.baselineEstablished) {
+        // Check for anomaly (immediate trigger)
+        if (checkAnomaly(metrics)) {
+          callLiveCommentaryAPI('anomaly', metrics);
+        }
+        // Check for consistency (30s window)
+        else if (checkConsistency(metrics)) {
+          callLiveCommentaryAPI('consistency', metrics);
+        }
+      }
+    }, 1000); // 1Hz
+
+    // Phase 3: 45-second heartbeat fallback
+    adaptiveHeartbeatRef.current = setInterval(() => {
+      if (!trackerRef.current || !isMountedRef.current) return;
+
+      const metrics = trackerRef.current.getBaselineMetrics();
+      const now = Date.now();
+
+      // Only send heartbeat if baseline established and no recent AI call
+      if (metrics.baselineEstablished &&
+          now - lastAICallRef.current >= ADAPTIVE_CONFIG.HEARTBEAT_INTERVAL_MS) {
+        console.log('[Adaptive] Heartbeat triggered');
+        callLiveCommentaryAPI('heartbeat', metrics);
+      }
+    }, ADAPTIVE_CONFIG.HEARTBEAT_INTERVAL_MS);
+
     return () => {
       console.log('[IntegrityTracker] Cleaning up');
       isMountedRef.current = false;
@@ -215,9 +401,19 @@ export function useKeystrokeDynamics({
         flushIntervalRef.current = null;
       }
 
+      // Phase 3: Cleanup intervals
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
+      }
+      if (adaptiveHeartbeatRef.current) {
+        clearInterval(adaptiveHeartbeatRef.current);
+        adaptiveHeartbeatRef.current = null;
+      }
+
       trackerRef.current = null;
     };
-    // handleAnomaly and flushEvents use refs, so they're stable
+    // handleAnomaly, flushEvents, checkAnomaly, checkConsistency, callLiveCommentaryAPI use refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, enabled]);
 
@@ -298,7 +494,11 @@ export function useKeystrokeDynamics({
     };
   }, [editor, enabled]);
 
+  // Phase 3: Getter for direct tracker access
+  const getTracker = useCallback(() => trackerRef.current, []);
+
   return {
     isTracking: enabled && !!trackerRef.current,
+    getTracker,  // Phase 3: Direct tracker access
   };
 }

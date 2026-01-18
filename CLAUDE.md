@@ -35,43 +35,65 @@ GEMINI_API_KEY=...
 
 ## Session Handoff Notes
 
-**Last updated**: 2026-01-17
-**Status**: Phase 2 complete (Webcam + Live Commentary)
+**Last updated**: 2026-01-18
+**Status**: Phase 3 mostly complete (Event-Driven Adaptive AI Commentary)
 
-**Completed (this session - Phase 2)** (commit `f96e93e`):
-- Webcam Smart Snapshots (`hooks/useWebcamTelemetry.ts`)
-  - 45-second interval + event-triggered captures
-  - Smart budgeting: 30 max, stops heartbeats at 20, reserves 10 for events
-  - Triggers: suspicious_return, bulk_insert, focus_loss, post_return_burst
-- Visual Snapshots API (`app/api/visual-snapshots/route.ts`)
-  - Base64 JPEG storage in MongoDB `visual_snapshots` collection
-  - Netlify function mirror included
-- PulseGraph Enhancement (`components/PulseGraph.tsx`)
-  - Camera icon overlay on bars with snapshots
-  - Hover image preview tooltip
-- Live AI Commentary
-  - `components/LiveCommentaryFeed.tsx` - real-time verdict display
-  - `hooks/useAbly.ts` - added onAIVerdict + publishAIVerdict
-  - Gemini's fix: verdict publishing in `useKeystrokeDynamics.ts`
+**Pending (incomplete from interrupted session)**:
+- Update MAX_SNAPSHOTS_PER_SESSION from 30 to 100 in `app/api/visual-snapshots/route.ts`
+- Integrate vision analysis results into `/api/analyze` forensic prompt (so AI has access to vision findings)
 
-**New Files (Phase 2)**:
-- `app/api/visual-snapshots/route.ts` - Webcam snapshot storage
-- `netlify/functions/visual-snapshots.ts` - Netlify mirror
-- `hooks/useWebcamTelemetry.ts` - Smart webcam capture hook
-- `components/LiveCommentaryFeed.tsx` - Real-time AI verdict feed
+**Completed (this session - Phase 3)**:
 
-**Modified Files (Phase 2)**:
-- `types/index.ts` - VisualSnapshot, AIVerdictMessage types
-- `hooks/useAbly.ts` - onAIVerdict callback, publishAIVerdict function
-- `hooks/useKeystrokeDynamics.ts` - AI verdict publishing (Gemini's fix)
-- `components/PulseGraph.tsx` - Camera icon + hover preview
-- `components/editor/CodeEditor.tsx` - Wired publishAIVerdict
-- `app/candidate/[sessionId]/page.tsx` - Webcam integration + status
-- `app/review/[sessionId]/page.tsx` - Visual snapshots + Live Commentary
+### Event-Driven Adaptive AI Commentary
+Replaced hardcoded threshold-based detection with intelligent, per-candidate adaptive AI commentary that learns baseline behavior and triggers Gemini analysis only when behavior shifts.
 
-**Gemini's Critical Fix**:
-The plan had consumers (LiveCommentaryFeed) but no producers. Added publishing logic in useKeystrokeDynamics.ts that sends ai_verdict messages to Ably when warning/critical events occur.
+**Architecture**:
+```
+IntegrityTracker (Rolling Window + WPM + Baseline)
+         ↓
+useKeystrokeDynamics (3 Event-Driven Triggers)
+         ↓
+/api/live-commentary (Gemini 2.0 Flash)
+         ↓
+Ably ai_verdict channel
+         ↓
+LiveCommentaryFeed (1Hz local metrics + AI verdicts)
+```
+
+**Key Features**:
+1. **Per-Candidate Baseline**: First 60s + 100 chars establishes "normal" WPM and correction ratio
+2. **3 Adaptive Triggers**:
+   - Consistency (30s stable): Stats within ±20% of baseline → positive observation
+   - Anomaly (immediate): WPM spikes >50% or drops to near 0 → warning
+   - Heartbeat (45s fallback): No AI update for 45s → check-in
+3. **15-second Rate Limit**: Prevents API spam
+4. **1Hz Metrics Display**: Real-time WPM, corrections %, baseline status in LiveCommentaryFeed
+5. **AI Vision Analysis**: Gemini analyzes webcam snapshots for gaze/objects/presence
+
+**New Files (Phase 3)**:
+- `app/api/live-commentary/route.ts` - Gemini endpoint for adaptive commentary
+
+**Modified Files (Phase 3)**:
+- `types/index.ts` - BaselineMetrics, LiveCommentaryRequest, adaptive event types, aiAnalysis field
+- `lib/IntegrityTracker.ts` - Rolling 60s window, WPM calculation, getBaselineMetrics()
+- `hooks/useKeystrokeDynamics.ts` - 3 triggers, API calls, rate limiting, onMetricsUpdate
+- `components/LiveCommentaryFeed.tsx` - MetricsBar UI (baseline status, WPM, corrections)
+- `components/editor/CodeEditor.tsx` - onMetricsUpdate prop
+- `app/api/events/route.ts` - adaptive_consistency (+2), adaptive_anomaly (-3), adaptive_heartbeat (0)
+- `app/api/visual-snapshots/route.ts` - Gemini Vision analysis, visual_anomaly verdicts
+- `netlify/functions/events.ts` - Added adaptive event score impacts
+
+**Verification Steps**:
+1. Start candidate session, type normally for 60s → baseline established
+2. Check LiveCommentaryFeed shows WPM and corrections updating at 1Hz
+3. Type steadily for 30s → should see "consistency" positive verdict
+4. Suddenly paste large code → should see "anomaly" verdict immediately
+5. Stop typing for 45s → should see "heartbeat" check-in
+6. Verify rate limiting: rapid events shouldn't spam API
+7. Look away from camera → should see "Visual: Eyes diverted" verdict
+8. Hold up phone → should see "Visual: Phone detected" verdict
 
 **Next Steps**:
 - Deploy to Netlify and test end-to-end
-- Consider Phase 3: Video proctoring integration
+- Consider: Confidence score aggregation from multiple signals
+- Consider: Historical pattern analysis across sessions

@@ -8329,3 +8329,126 @@ The plan details how to *display* the commentary (`LiveCommentaryFeed.tsx`) and 
 > * When a 'Red Flag' event occurs (like `suspicious_return`), the client must **publish** a message to the Ably `ai_verdict` channel so the `LiveCommentaryFeed` has something to show.
 
 ---
+
+---
+
+## 2026-01-18 - Adaptive AI Commentary Architecture
+
+**Topic:** Event-Driven AI Commentary vs Periodic Polling
+
+**Gemini said:**
+
+### The Problem with Claude's Initial Plan
+Claude proposed "Periodic Analysis every 15-30 seconds" which has a **fatal flaw for a demo**:
+- If you sit idle for 15 seconds, the AI says nothing
+- If you cheat at second 16, and the AI doesn't report until second 30, the demo feels "laggy"
+
+### The Better Plan: "Event-Driven AI Commentary"
+
+Do not just run a cron job every 30 seconds. Instead, trigger the AI **when the behavior shifts.**
+
+#### 1. The "Normal" Learner (Local Logic):
+- The system keeps a `running_average` of the user's typing speed and backspace ratio
+- Example: User types at 60 WPM for the first minute. The system sets `Baseline = 60`
+
+#### 2. The "Deviation" Trigger:
+- If the user suddenly jumps to 120 WPM (2x Baseline), **THAT** triggers the call to Gemini
+- Prompt: "User baseline is 60 WPM. Current burst is 120 WPM. Analyze."
+- Gemini Reply: "Sudden velocity spike detected. 200% above established baseline. Investigating for paste-scripting."
+
+#### 3. The "Vibe Check" (The Idle Commentary):
+- Only if *nothing* happens for 45 seconds, send a "Heartbeat" to Gemini
+- Prompt: "User is typing steadily at baseline."
+- Gemini Reply: "Rhythm remains consistent. Cognitive flow appears natural."
+
+### Why NOT Every Second Polling
+
+If you call Gemini every second (1Hz), three things will destroy your demo:
+
+1. **The "Pile-Up" Effect (Latency):** Even the fastest AI takes ~500ms to 1.5s to reply. Requests will queue up and commentary will lag 10 seconds behind reality.
+2. **Rate Limits:** You will hit the API "Requests Per Minute" cap instantly. Demo crashes with `429 Too Many Requests`.
+3. **User Noise:** A recruiter cannot read a new sentence every second. It becomes flickering text they ignore.
+
+### The Solution: "Perceived" Real-Time (The Hybrid Model)
+
+#### 1. The Local "Heartbeat" (Updates Every Second)
+- Frontend updates **metrics** (WPM, Backspace Count, Activity Status) every second locally
+- Visual: Recruiter sees numbers changing `60 WPM` -> `62 WPM` -> `0 WPM` instantly
+- **This satisfies the "Real-Time" hunger**
+
+#### 2. The AI "Brain" (Updates on *Change*)
+The AI only speaks when the story changes:
+- Typing normally for 20 seconds → Local updates WPM graph, AI silent (or one "Steady rhythm" message)
+- Suddenly stop and Paste → Local detects `bulk_insert`, AI **IMMEDIATELY** fires: "Sudden context shift. User pasted code."
+
+**This feels instant because the AI reacts exactly when the human brain notices something is wrong.**
+
+### Model Recommendation: Gemini 2.0 Flash
+- **Gemini 1.5 Pro / "Gemini 3" (Big Models):** Too Slow. Latency ~2-3 seconds feels sluggish for live feed.
+- **Gemini 2.0 Flash:** Insanely Fast. Optimized for high-frequency tasks. Smart enough for analyzing typing patterns.
+
+### The Implementation Architecture
+
+1. **Local UI (1Hz Updates):**
+   - `LiveCommentaryFeed` updates metrics (WPM, Status Icon) every second locally
+   - Gives visual feedback of "Continuous Monitoring"
+
+2. **AI Logic (Event-Driven + Adaptive):**
+   - **The Baseline:** Calculate candidate's average WPM/Backspace ratio locally
+   - **The Trigger:** Call Gemini ONLY when:
+     - A "Red Flag" event occurs (`suspicious_return`, `bulk_insert`)
+     - **OR** User deviates >30% from established baseline (Adaptive Threshold)
+     - **OR** 45 seconds passed with no updates (Heartbeat to say "All good")
+
+3. **The Prompt:**
+   - Send current metrics + baseline metrics to Gemini
+   - Ask: "Compare current behavior to the baseline. Is this natural or suspicious? Keep it under 15 words."
+
+---
+
+---
+
+## 2026-01-18 - AI Vision Analysis for Webcam Snapshots
+
+**Topic:** Adding Gemini Vision to analyze webcam snapshots in real-time
+
+**Gemini said:**
+
+### The Upgrade: From Passive Recording to Active Monitoring
+
+You don't just want to store the photo; you want the AI to **tag** it.
+
+* *Instead of just:* "Snapshot at 10:42."
+* *It becomes:* "⚠️ **Visual Alert:** Subject looking down (likely phone) during code paste."
+
+This makes the "Live Commentary" terrifyingly smart.
+
+### The "AI Vision" Workflow
+
+1. **Upload:** Frontend sends the Base64 image to `/api/visual-snapshots`
+2. **Analyze (Server-Side):** The API immediately sends that image to Gemini 2.0 Flash
+3. **Prompt:** "Analyze this webcam frame. Return JSON: `{ gaze: 'center' | 'off-screen' | 'down', objects: ['phone', 'second-person'] }`."
+4. **Tag:** Save the AI's verdict with the snapshot in MongoDB
+5. **Feed:** The "Live Commentary" reads this tag and posts: *"Visual Anomaly: Eyes diverted off-screen."*
+
+### Implementation Details
+
+**Update `app/api/visual-snapshots/route.ts`:**
+
+1. **Integrate Gemini Vision:**
+   - When a snapshot is received (POST), pass the `imageData` (Base64) to `googleGenerativeAI`
+   - **Model:** Use `gemini-1.5-flash` or `gemini-2.0-flash-exp` (Fastest multimodal models)
+
+2. **The Vision Prompt:**
+   - "Analyze the candidate in this webcam frame for proctoring context. Check for: 1. Gaze direction (looking at screen vs away). 2. Suspicious objects (phones, people). 3. Presence (is chair empty?). Return a short 1-sentence risk assessment."
+
+3. **Storage:**
+   - Add a new field `aiAnalysis` to the `VisualSnapshot` schema
+   - Store the AI's response string there
+
+4. **Live Commentary Integration:**
+   - If the Vision AI detects a risk (e.g., 'Looking away' or 'Phone visible'), **immediately publish** a message to the Ably `ai_verdict` channel so it pops up in the Recruiter's feed
+
+**Constraint:** Fire this analysis asynchronously (don't make the client wait for the AI response).
+
+---

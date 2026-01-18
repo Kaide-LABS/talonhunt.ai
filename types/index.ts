@@ -25,7 +25,10 @@ export type IntegrityEventType =
   | 'interrogation_triggered'       // Day 5: When interrogation starts (suspicious event)
   | 'interrogation_completed'       // Day 5: When candidate answers interrogation
   | 'post_return_burst_suspicious'  // Day 5: Memory dump typing pattern (fast+consistent after return)
-  | 'low_undo_ratio';               // Day 5: Suspiciously clean typing (no mistakes)
+  | 'low_undo_ratio'                // Day 5: Suspiciously clean typing (no mistakes)
+  | 'adaptive_consistency'          // Phase 3: 30s stable within baseline (positive)
+  | 'adaptive_anomaly'              // Phase 3: Significant deviation from baseline
+  | 'adaptive_heartbeat';           // Phase 3: 45s check-in (neutral)
 
 export type IntegritySeverity = 'info' | 'warning' | 'critical';
 
@@ -114,6 +117,7 @@ export interface VisualSnapshot {
   timestamp: number;
   imageData: string;  // Base64 JPEG
   trigger: VisualSnapshotTrigger;
+  aiAnalysis?: string;  // Phase 3: Gemini Vision analysis result
 }
 
 // Phase 2: AI Live Commentary types
@@ -122,9 +126,33 @@ export type AIVerdictType = 'suspicious' | 'concerning' | 'normal' | 'positive';
 export interface AIVerdictMessage {
   timestamp: number;
   verdict: AIVerdictType;
-  eventType: IntegrityEventType;
+  eventType: IntegrityEventType | 'adaptive_consistency' | 'adaptive_anomaly' | 'adaptive_heartbeat' | 'visual_anomaly';
   summary: string;
   confidence: number;  // 0-100
+  metrics?: BaselineMetrics;  // Phase 3: Include metrics for live display
+}
+
+// Phase 3: Adaptive AI Commentary types
+export interface BaselineMetrics {
+  baselineWPM: number | null;           // Established baseline words per minute
+  baselineBackspaceRatio: number | null; // Established baseline correction ratio
+  currentWPM: number;                    // Real-time WPM
+  currentBackspaceRatio: number;         // Real-time correction ratio
+  baselineEstablished: boolean;          // True after 60s + 100 chars
+  sessionDurationMs: number;             // Time since first keystroke
+  charactersTyped: number;               // Total characters typed
+}
+
+export type AdaptiveTriggerType = 'consistency' | 'anomaly' | 'heartbeat';
+
+export interface LiveCommentaryRequest {
+  sessionId: string;
+  baselineWPM: number | null;
+  currentWPM: number;
+  baselineBackspaceRatio: number | null;
+  currentBackspaceRatio: number;
+  eventType: AdaptiveTriggerType;
+  recentEvents: Array<{ type: IntegrityEventType; timestamp: number }>;
 }
 
 // Day 5: AI-Annotated Replay - Activity classification

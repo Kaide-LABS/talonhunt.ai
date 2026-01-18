@@ -36,13 +36,20 @@ GEMINI_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-18
-**Status**: Phase 3 mostly complete (Event-Driven Adaptive AI Commentary)
+**Status**: Phase 3 COMPLETE ✅
 
-**Pending (incomplete from interrupted session)**:
-- Update MAX_SNAPSHOTS_PER_SESSION from 30 to 100 in `app/api/visual-snapshots/route.ts`
-- Integrate vision analysis results into `/api/analyze` forensic prompt (so AI has access to vision findings)
+**Completed this session**:
+1. ✅ MAX_SNAPSHOTS_PER_SESSION: 30 → 100
+2. ✅ Vision analysis integrated into `/api/analyze` forensic prompt
+3. ✅ Fixed data gap: adaptive events now persist to MongoDB (double-write pattern)
+4. ✅ Adaptive events include `aiSummary` field for Final Analyst
+5. ✅ Added adaptive event types to EVENT DICTIONARY
 
-**Completed (this session - Phase 3)**:
+**Data Flow Now Complete**:
+- Live Commentary → Ably (real-time) + MongoDB (permanent) → Final AI sees it ✅
+- Visual Snapshots → MongoDB (aiAnalysis) → Final AI sees it ✅
+
+**Previously Completed (Phase 3)**:
 
 ### Event-Driven Adaptive AI Commentary
 Replaced hardcoded threshold-based detection with intelligent, per-candidate adaptive AI commentary that learns baseline behavior and triggers Gemini analysis only when behavior shifts.

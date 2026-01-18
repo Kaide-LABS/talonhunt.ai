@@ -69,12 +69,25 @@ export async function POST(request: NextRequest) {
       data: e.data as Record<string, unknown> | undefined,
     }));
 
+    // Fetch visual snapshots with AI analysis
+    const visualSnapshotDocs = await db.collection<VisualSnapshot>('visual_snapshots')
+      .find({ sessionId })
+      .sort({ timestamp: 1 })
+      .toArray();
+
+    const visualSnapshots = visualSnapshotDocs.map(s => ({
+      sequenceNumber: s.sequenceNumber,
+      timestamp: s.timestamp,
+      aiAnalysis: s.aiAnalysis,
+      trigger: s.trigger,
+    }));
+
     // Fetch latest code snapshot
     const snapshot = await db.collection('code_snapshots')
       .findOne({ sessionId }, { sort: { timestamp: -1 } });
 
     // Build the forensic prompt
-    const forensicPrompt = buildForensicPrompt(session, events, snapshot?.code as string | undefined);
+    const forensicPrompt = buildForensicPrompt(session, events, snapshot?.code as string | undefined, visualSnapshots);
 
     // Call Gemini 2.0 Flash
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
@@ -100,10 +113,34 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function buildVisualProctoringSection(
+  visualSnapshots?: Array<{ sequenceNumber: number; timestamp: number; aiAnalysis?: string; trigger: string }>
+): string {
+  if (!visualSnapshots || visualSnapshots.length === 0) {
+    return '## VISUAL PROCTORING DATA\n\nNo webcam snapshots available for this session.';
+  }
+
+  const analyzedSnapshots = visualSnapshots.filter(s => s.aiAnalysis);
+  const snapshotSummary = analyzedSnapshots.map(s => {
+    const time = new Date(s.timestamp).toISOString().slice(11, 19);
+    return `[${time}] (${s.trigger}) ${s.aiAnalysis}`;
+  }).join('\n');
+
+  return `## VISUAL PROCTORING DATA
+
+${visualSnapshots.length} webcam snapshots captured (${analyzedSnapshots.length} analyzed):
+${snapshotSummary || 'No analysis results available yet.'}
+
+IMPORTANT: Cross-reference visual alert timestamps with event timestamps above.
+If a visual anomaly (phone, gaze diversion, second person) occurs within 30 seconds of a code anomaly
+(bulk_insert, suspicious_return), this correlation significantly increases risk assessment.`;
+}
+
 function buildForensicPrompt(
   session: { integrityScore: number; language: string },
   events: Array<{ type: string; timestamp: number; data?: Record<string, unknown> }>,
-  code?: string
+  code?: string,
+  visualSnapshots?: Array<{ sequenceNumber: number; timestamp: number; aiAnalysis?: string; trigger: string }>
 ): string {
   // Count events by type
   const eventCounts: Record<string, number> = {};
@@ -133,6 +170,11 @@ These events were captured by our integrity tracking system. Understanding their
 - **focus_loss**: Tab switch detected - NEUTRAL (checking documentation is normal developer behavior!)
 - **research_break**: >2000ms cognitive pause after returning from tab switch - GOOD (legitimate research/understanding)
 - **paste**: Clipboard paste detected - MINOR (pasting small snippets is normal)
+- **adaptive_consistency**: 30+ seconds of stable typing within baseline - POSITIVE (natural human coding flow)
+- **adaptive_anomaly**: Significant deviation from established baseline (WPM spike/drop) - WARNING (may indicate external help or copy-paste)
+- **adaptive_heartbeat**: Regular 45-second check-in - NEUTRAL (session monitoring active)
+
+NOTE: adaptive_* events include an "aiSummary" field with real-time AI observations. Pay special attention to these summaries as they provide context-aware insights.
 
 ## SESSION DATA
 
@@ -147,6 +189,8 @@ ${Object.entries(eventCounts).map(([type, count]) => `- ${type}: ${count}`).join
 ${recentEvents}
 
 ${code ? `**Code Length**: ${code.length} characters` : ''}
+
+${buildVisualProctoringSection(visualSnapshots)}
 
 ## YOUR TASK
 

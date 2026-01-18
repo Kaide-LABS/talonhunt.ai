@@ -182,7 +182,7 @@ export function useKeystrokeDynamics({
         const data = await response.json();
         console.log('[Adaptive] API response:', data);
 
-        // Publish AI verdict to Ably with metrics
+        // Publish AI verdict to Ably with metrics (real-time display)
         if (publishVerdictRef.current && data.verdict && data.summary) {
           publishVerdictRef.current({
             verdict: data.verdict,
@@ -192,6 +192,30 @@ export function useKeystrokeDynamics({
             metrics,  // Phase 3: Include metrics for reviewer display
           });
         }
+
+        // CRITICAL: Also persist to MongoDB for Final AI Analysis
+        // This ensures the Final Report sees the same insights as the Live Feed
+        const adaptiveEventType = `adaptive_${triggerType}` as IntegrityEventType;
+        const adaptiveEvent: TelemetryEvent = {
+          type: adaptiveEventType,
+          timestamp: now,
+          data: {
+            verdict: data.verdict,
+            aiSummary: data.summary,  // Preserve AI's exact observation
+            confidence: data.confidence || 70,
+            baselineWPM: metrics.baselineWPM,
+            currentWPM: metrics.currentWPM,
+            baselineBackspaceRatio: metrics.baselineBackspaceRatio,
+            currentBackspaceRatio: metrics.currentBackspaceRatio,
+          },
+        };
+
+        // Post directly to events API (don't wait for tracker flush)
+        fetch('/api/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, events: [adaptiveEvent] }),
+        }).catch(err => console.error('[Adaptive] Failed to persist event:', err));
       }
     } catch (error) {
       console.error('[Adaptive] API call failed:', error);

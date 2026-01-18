@@ -4,7 +4,7 @@ import Ably from 'ably';
 import { getDb } from '@/lib/mongodb';
 import type { VisualSnapshot, VisualSnapshotTrigger, AIVerdictMessage, AIVerdictType } from '@/types';
 
-const MAX_SNAPSHOTS_PER_SESSION = 30;
+const MAX_SNAPSHOTS_PER_SESSION = 100;
 
 // Initialize Gemini for Vision analysis
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');

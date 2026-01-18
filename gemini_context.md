@@ -8452,3 +8452,56 @@ This makes the "Live Commentary" terrifyingly smart.
 **Constraint:** Fire this analysis asynchronously (don't make the client wait for the AI response).
 
 ---
+
+## 2026-01-18 - Vision Analysis Integration Confirmation
+
+**Topic:** Integrating vision analysis into final AI forensic verdict
+
+**Gemini said:**
+This plan covers the final "Blind Spot"—ensuring the **Final Verdict** actually reads the **Visual Evidence**.
+
+Right now, your dashboard shows the photos, but the AI Analyst ignores them. This fix ensures that when the AI writes the final report, it says: *"Candidate was flagged for looking at a phone at 10:42,"* instead of just analyzing keystrokes.
+
+**Command for Claude:**
+
+> "This is the correct integration logic. It ensures the 'Final Verdict' isn't blind to the visual evidence we just captured.
+> **Proceed with the implementation:**
+> 1. **Update Limit:** `MAX_SNAPSHOTS = 100` in `app/api/visual-snapshots/route.ts`.
+> 2. **Update Analyst:** Modify `app/api/analyze/route.ts` to fetch `visual_snapshots` and inject the `aiAnalysis` text into the Gemini prompt.
+>
+>
+> **Verify:** Ensure the prompt format specifically asks Gemini to cross-reference the *timestamps* of visual alerts with the *timestamps* of code anomalies."
+
+---
+
+---
+
+## 2026-01-18 - Adaptive Events Data Gap
+
+**Topic:** Critical data gap - adaptive events not being persisted to MongoDB
+
+**Gemini said:**
+You are absolutely right. This is a **critical data gap**.
+
+If we don't fix this, you will have a weird demo situation where the **Live Feed** is screaming "Anomaly!" but the **Final Report** says "Everything looks fine" because it never saw those events.
+
+### **The Fix: Persist the Adaptive Signals**
+
+You need to modify `useKeystrokeDynamics.ts` to "double-write" these events:
+
+1. **To Ably:** For the real-time UI (already doing this).
+2. **To MongoDB:** For the permanent record and Final Analysis.
+
+**Implementation:**
+1. Update `callLiveCommentaryAPI`:
+   - When the API returns a verdict (e.g., `anomaly`, `consistency`), immediately log it to MongoDB
+   - Map the types:
+     - Verdict `anomaly` -> Event `adaptive_anomaly`
+     - Verdict `consistency` -> Event `adaptive_consistency`
+     - Verdict `heartbeat` -> Event `adaptive_heartbeat`
+
+2. Enrich the Payload:
+   - Ensure the event `data` payload includes the AI's commentary text
+   - This allows the Final Analyst to read the specific observation rather than just seeing a generic tag
+
+---

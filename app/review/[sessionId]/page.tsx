@@ -679,13 +679,6 @@ export default function ReviewPage() {
                 '▶ Session Replay'
               )}
             </button>
-            {/* Integrity Score */}
-            <div className="text-center">
-              <p className="text-xs text-gray-400 uppercase tracking-wide">Integrity Score</p>
-              <p className={`text-3xl font-bold ${getScoreColor(session.integrityScore)}`}>
-                {session.integrityScore}
-              </p>
-            </div>
             {/* Session Status */}
             <div
               className={`px-3 py-1 rounded-full text-sm ${

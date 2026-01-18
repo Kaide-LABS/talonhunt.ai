@@ -1,10 +1,18 @@
 import type { Handler } from '@netlify/functions';
 import { getDb } from '../../lib/mongodb';
-import { customAlphabet } from 'nanoid';
+import { randomBytes } from 'crypto';
 import type { Session } from '../../types';
 
-// Use alphanumeric only to avoid URL issues with _ and -
-const nanoid = customAlphabet('0123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz', 10);
+// Generate URL-safe alphanumeric ID using Node's crypto (CommonJS compatible)
+const ALPHABET = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+function generateId(length: number = 10): string {
+  const bytes = randomBytes(length);
+  let id = '';
+  for (let i = 0; i < length; i++) {
+    id += ALPHABET[bytes[i] % ALPHABET.length];
+  }
+  return id;
+}
 
 const handler: Handler = async (event) => {
   const db = await getDb();
@@ -14,7 +22,7 @@ const handler: Handler = async (event) => {
   if (event.httpMethod === 'POST') {
     try {
       const body = JSON.parse(event.body || '{}');
-      const sessionId = nanoid(10);
+      const sessionId = generateId(10);
 
       const session: Session = {
         sessionId,

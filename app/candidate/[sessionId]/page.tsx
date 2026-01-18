@@ -260,14 +260,14 @@ export default function CandidatePage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Phase 2: Camera status indicator */}
+            {/* Camera status indicator - minimal, no counts shown */}
             {cameraPermissionDenied ? (
               <span className="text-xs text-yellow-500 flex items-center gap-1">
                 <span>📷</span> Camera denied
               </span>
             ) : hasCameraPermission ? (
               <span className="text-xs text-green-500 flex items-center gap-1">
-                <span>📷</span> {snapshotCount}/30
+                <span>📷</span> Monitoring
               </span>
             ) : (
               <span className="text-xs text-gray-500 flex items-center gap-1">

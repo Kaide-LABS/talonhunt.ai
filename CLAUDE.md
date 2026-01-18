@@ -2,11 +2,24 @@
 
 Live coding interview platform with real-time integrity tracking to detect AI-assisted cheating (Cluely, Interview Coder, etc.)
 
-## Current Priorities
+## Current Status: DEMO READY ✅
 
-1. **Day 4**: Build Recruiter Dashboard UI (visualizations, event timeline)
-2. **Day 5**: Add Pulse graph, Session Replay
-3. Consider: Video proctoring integration for stronger detection
+All core features complete:
+- ✅ Candidate coding UI with Monaco Editor
+- ✅ Real-time keystroke tracking (WPM, corrections, focus)
+- ✅ Webcam telemetry + Gemini vision analysis
+- ✅ Adaptive AI commentary (per-candidate baseline)
+- ✅ Live commentary feed (1Hz metrics + AI verdicts)
+- ✅ Pulse Graph visualization
+- ✅ Session Replay with controls
+- ✅ Recruiter review page (`/review/[sessionId]`)
+- ✅ Final AI forensic analysis
+
+## Future Considerations
+
+- Confidence score aggregation from multiple signals
+- Historical pattern analysis across sessions
+- Video proctoring integration for stronger detection
 
 ## Known Issues / Context
 
@@ -36,71 +49,45 @@ GEMINI_API_KEY=...
 ## Session Handoff Notes
 
 **Last updated**: 2026-01-18
-**Status**: Phase 3 COMPLETE ✅
+**Status**: DEMO READY ✅
 
-**Completed this session**:
-1. ✅ MAX_SNAPSHOTS_PER_SESSION: 30 → 100
-2. ✅ Vision analysis integrated into `/api/analyze` forensic prompt
-3. ✅ Fixed data gap: adaptive events now persist to MongoDB (double-write pattern)
-4. ✅ Adaptive events include `aiSummary` field for Final Analyst
-5. ✅ Added adaptive event types to EVENT DICTIONARY
-
-**Data Flow Now Complete**:
-- Live Commentary → Ably (real-time) + MongoDB (permanent) → Final AI sees it ✅
-- Visual Snapshots → MongoDB (aiAnalysis) → Final AI sees it ✅
-
-**Previously Completed (Phase 3)**:
-
-### Event-Driven Adaptive AI Commentary
-Replaced hardcoded threshold-based detection with intelligent, per-candidate adaptive AI commentary that learns baseline behavior and triggers Gemini analysis only when behavior shifts.
-
-**Architecture**:
+### System Architecture
 ```
+Candidate UI (Monaco Editor)
+         ↓
 IntegrityTracker (Rolling Window + WPM + Baseline)
          ↓
-useKeystrokeDynamics (3 Event-Driven Triggers)
+useKeystrokeDynamics (3 Adaptive Triggers)
          ↓
 /api/live-commentary (Gemini 2.0 Flash)
          ↓
-Ably ai_verdict channel
+Ably (real-time) + MongoDB (persistent)
          ↓
-LiveCommentaryFeed (1Hz local metrics + AI verdicts)
+Recruiter Review (/review/[sessionId])
+├── Pulse Graph (activity timeline)
+├── Session Replay (code playback)
+└── Final AI Analysis (forensic verdict)
 ```
 
-**Key Features**:
-1. **Per-Candidate Baseline**: First 60s + 100 chars establishes "normal" WPM and correction ratio
-2. **3 Adaptive Triggers**:
-   - Consistency (30s stable): Stats within ±20% of baseline → positive observation
-   - Anomaly (immediate): WPM spikes >50% or drops to near 0 → warning
-   - Heartbeat (45s fallback): No AI update for 45s → check-in
-3. **15-second Rate Limit**: Prevents API spam
-4. **1Hz Metrics Display**: Real-time WPM, corrections %, baseline status in LiveCommentaryFeed
-5. **AI Vision Analysis**: Gemini analyzes webcam snapshots for gaze/objects/presence
+### Key Components
+| Component | Purpose |
+|-----------|---------|
+| `components/PulseGraph.tsx` | Activity visualization (5-sec buckets) |
+| `components/replay/ReplayControls.tsx` | Session playback controls |
+| `components/LiveCommentaryFeed.tsx` | 1Hz metrics + AI verdicts |
+| `components/InterrogationModal.tsx` | Suspicious moment deep-dive |
+| `app/review/[sessionId]/page.tsx` | Recruiter dashboard |
+| `app/api/live-commentary/route.ts` | Adaptive AI commentary |
+| `app/api/visual-snapshots/route.ts` | Webcam + Gemini vision |
+| `app/api/analyze/route.ts` | Final forensic analysis |
 
-**New Files (Phase 3)**:
-- `app/api/live-commentary/route.ts` - Gemini endpoint for adaptive commentary
+### Adaptive AI Features
+- **Per-Candidate Baseline**: First 60s + 100 chars establishes "normal"
+- **3 Triggers**: Consistency (30s stable), Anomaly (immediate), Heartbeat (45s fallback)
+- **15-second Rate Limit**: Prevents API spam
+- **Vision Analysis**: Gaze tracking, object detection, presence verification
 
-**Modified Files (Phase 3)**:
-- `types/index.ts` - BaselineMetrics, LiveCommentaryRequest, adaptive event types, aiAnalysis field
-- `lib/IntegrityTracker.ts` - Rolling 60s window, WPM calculation, getBaselineMetrics()
-- `hooks/useKeystrokeDynamics.ts` - 3 triggers, API calls, rate limiting, onMetricsUpdate
-- `components/LiveCommentaryFeed.tsx` - MetricsBar UI (baseline status, WPM, corrections)
-- `components/editor/CodeEditor.tsx` - onMetricsUpdate prop
-- `app/api/events/route.ts` - adaptive_consistency (+2), adaptive_anomaly (-3), adaptive_heartbeat (0)
-- `app/api/visual-snapshots/route.ts` - Gemini Vision analysis, visual_anomaly verdicts
-- `netlify/functions/events.ts` - Added adaptive event score impacts
-
-**Verification Steps**:
-1. Start candidate session, type normally for 60s → baseline established
-2. Check LiveCommentaryFeed shows WPM and corrections updating at 1Hz
-3. Type steadily for 30s → should see "consistency" positive verdict
-4. Suddenly paste large code → should see "anomaly" verdict immediately
-5. Stop typing for 45s → should see "heartbeat" check-in
-6. Verify rate limiting: rapid events shouldn't spam API
-7. Look away from camera → should see "Visual: Eyes diverted" verdict
-8. Hold up phone → should see "Visual: Phone detected" verdict
-
-**Next Steps**:
-- Deploy to Netlify and test end-to-end
-- Consider: Confidence score aggregation from multiple signals
-- Consider: Historical pattern analysis across sessions
+### Data Flow
+- Live Commentary → Ably (real-time) + MongoDB (permanent)
+- Visual Snapshots → MongoDB with aiAnalysis field
+- All data available to Final AI Analyst
